@@ -13,6 +13,11 @@ from config.settings import (
 )
 from src.shared_state import SharedState
 from src.stats import StatsGenerator
+from src.image_utils import (
+    draw_detections_on_frame,
+    create_detection_collage_from_history,
+    create_latest_detections_collage
+)
 
 logger = logging.getLogger(__name__)
 
@@ -89,9 +94,9 @@ class TelegramBot:
         logger.info("Command /help received")
         await update.message.reply_text(
             "📋 *Commands:*\n"
-            "/scan - Get current snapshot\n"
+            "/scan - Get current snapshot with detections\n"
             "/status - System status overview\n"
-            "/summary - Last 24h detection stats\n"
+            "/summary - Last 24h stats with visual summary\n"
             "/reset - Clear detection history\n"
             "/help - Show this menu",
             parse_mode="Markdown"
@@ -106,8 +111,41 @@ class TelegramBot:
     async def cmd_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
         logger.info("Command /summary received")
+        
+        # Send text summary first
         summary_text = self.stats.get_summary(hours=24)
         await update.message.reply_text(summary_text, parse_mode="Markdown")
+        
+        # Create and send visual summary
+        try:
+            with self.state._lock:
+                recent_detections = list(self.state.detections)
+            
+            if recent_detections:
+                logger.info("Creating visual summary collage...")
+                collage = create_detection_collage_from_history(
+                    recent_detections, 
+                    max_images=20
+                )
+                
+                if collage:
+                    bio = io.BytesIO()
+                    collage.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
+                    bio.seek(0)
+                    
+                    await update.message.reply_photo(
+                        photo=bio, 
+                        caption="📊 Visual Summary"
+                    )
+                    logger.info("Visual summary sent successfully")
+                else:
+                    logger.warning("Failed to create collage")
+            else:
+                logger.info("No detections available for visual summary")
+                
+        except Exception as e:
+            logger.error(f"Error creating visual summary: {e}", exc_info=True)
+            # Don't fail the command, text summary was already sent
 
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
@@ -120,27 +158,65 @@ class TelegramBot:
         await update.message.reply_text("✨ Detection history and stats cleared.")
 
     async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Send a snapshot of the current frame."""
+        """Send a snapshot of the current frame with bounding boxes."""
         if not self._check_auth(update) or not update.message: return
         logger.info("Command /scan received")
         
-        frame = self.state.get_latest_frame()
+        # Get frame and detections
+        frame, detections = self.state.get_latest_frame_with_detections()
+        
         if frame is None:
             logger.warning("No frame available for snapshot")
             await update.message.reply_text("❌ No frame available (camera offline?)")
             return
 
+        # Draw bounding boxes and labels if detections exist
+        if detections:
+            logger.info(f"Drawing {len(detections)} detections on frame")
+            annotated_frame = draw_detections_on_frame(frame, detections)
+            caption = f"📸 Snapshot - {len(detections)} detection(s)"
+        else:
+            logger.info("No detections to draw on frame")
+            annotated_frame = frame
+            caption = "📸 Snapshot - No detections"
+        
         # Convert BGR (OpenCV) to RGB (Pillow)
-        frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame_rgb)
         
         # Save to memory buffer as JPEG
         bio = io.BytesIO()
-        image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY)
+        image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
         bio.seek(0)
         
-        logger.info("Sending snapshot to user")
-        await update.message.reply_photo(photo=bio, caption="📸 Snapshot")
+        logger.info("Sending annotated snapshot to user")
+        await update.message.reply_photo(photo=bio, caption=caption)
+        
+        # If there are detections, also send a collage of individual crops
+        if detections and len(detections) > 0:
+            try:
+                logger.info("Creating detection crops collage...")
+                collage = create_latest_detections_collage(
+                    frame, 
+                    detections,
+                    max_crops=9,
+                    target_size=(150, 150),
+                    collage_width=3
+                )
+                
+                if collage:
+                    bio_collage = io.BytesIO()
+                    collage.save(bio_collage, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
+                    bio_collage.seek(0)
+                    
+                    await update.message.reply_photo(
+                        photo=bio_collage,
+                        caption=f"🔍 Detected Objects ({len(detections)})"
+                    )
+                    logger.info("Detection collage sent successfully")
+            except Exception as e:
+                logger.error(f"Error creating detection collage: {e}", exc_info=True)
+                # Don't fail the command, main image was already sent
 
     def run(self):
         """Run the bot (blocking). Should be run in a separate thread."""

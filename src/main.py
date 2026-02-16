@@ -68,9 +68,6 @@ def main():
 
             frame_count += 1
             
-            # Update shared state with latest frame for Telegram bot snapshots
-            shared_state.update_frame(frame)
-
             # Phase 2: Motion Detection
             if motion_detector.detect(frame):
                 # Phase 3: YOLO Inference (triggered by motion)
@@ -78,10 +75,18 @@ def main():
                 
                 if detections:
                     shared_state.add_detections(detections)
+                    # Update shared state with frame and associated detections
+                    shared_state.update_frame_with_detections(frame, detections)
                     
                     # Simple console output for now
                     for d in detections:
                         logger.info(f"DETECTED: {d.class_name} ({d.confidence:.2f}) ID: {d.track_id}")
+                else:
+                    # Update frame without detections
+                    shared_state.update_frame(frame)
+            else:
+                # Update frame even when no motion
+                shared_state.update_frame(frame)
 
             # Debug: Show FPS every 30 frames
             # TODO: Phase 4 - Logging will go here
