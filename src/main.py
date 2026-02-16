@@ -67,6 +67,9 @@ def main():
                 continue
 
             frame_count += 1
+            
+            # Update shared state with latest frame for Telegram bot snapshots
+            shared_state.update_frame(frame)
 
             # Phase 2: Motion Detection
             if motion_detector.detect(frame):

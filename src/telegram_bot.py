@@ -29,10 +29,16 @@ class TelegramBot:
             logger.warning("Telegram Bot Token is missing! Bot will not start.")
             self.app = None
             return
+        
+        if not AUTHORIZED_USER_ID:
+            logger.warning("AUTHORIZED_USER_ID is missing! Bot will not start.")
+            self.app = None
+            return
 
         self.app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
         self._register_handlers()
-        logger.info("Telegram Bot initialized.")
+        logger.info("Telegram Bot initialized successfully.")
+        logger.info(f"Authorized user ID: {AUTHORIZED_USER_ID}")
 
     def _register_handlers(self):
         """Register command handlers."""
@@ -50,21 +56,27 @@ class TelegramBot:
     def _check_auth(self, update: Update) -> bool:
         """Check if user is authorized."""
         if not update.effective_user:
+            logger.warning("Received update without effective_user")
             return False
             
         user_id = str(update.effective_user.id)
-        # if hasattr(self, 'authorized_id') and self.authorized_id:
-        #      # If ID stored in self (not currently), logic here
-        #      pass
+        username = update.effective_user.username or "N/A"
         
         # Check against config
-        if user_id != str(AUTHORIZED_USER_ID):
-            logger.warning(f"Unauthorized access attempt from ID: {user_id}")
+        if not AUTHORIZED_USER_ID:
+            logger.error("AUTHORIZED_USER_ID is not configured in .env file!")
             return False
+            
+        if user_id != str(AUTHORIZED_USER_ID):
+            logger.warning(f"Unauthorized access attempt from user '{username}' (ID: {user_id})")
+            return False
+            
+        logger.debug(f"Authorized request from user '{username}' (ID: {user_id})")
         return True
 
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        logger.info("Command /start received")
         await update.message.reply_text(
             "🛡 *Hostile Object Estimation System*\n"
             "System is online and monitoring.\n\n"
@@ -74,6 +86,7 @@ class TelegramBot:
 
     async def cmd_help(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        logger.info("Command /help received")
         await update.message.reply_text(
             "📋 *Commands:*\n"
             "/scan - Get current snapshot\n"
@@ -86,16 +99,19 @@ class TelegramBot:
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        logger.info("Command /status received")
         status_text = self.stats.get_status_short()
         await update.message.reply_text(status_text, parse_mode="Markdown")
 
     async def cmd_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        logger.info("Command /summary received")
         summary_text = self.stats.get_summary(hours=24)
         await update.message.reply_text(summary_text, parse_mode="Markdown")
 
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        logger.info("Command /reset received")
         
         with self.state._lock:
             self.state.detections.clear()
@@ -106,9 +122,11 @@ class TelegramBot:
     async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Send a snapshot of the current frame."""
         if not self._check_auth(update) or not update.message: return
+        logger.info("Command /scan received")
         
         frame = self.state.get_latest_frame()
         if frame is None:
+            logger.warning("No frame available for snapshot")
             await update.message.reply_text("❌ No frame available (camera offline?)")
             return
 
@@ -121,6 +139,7 @@ class TelegramBot:
         image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY)
         bio.seek(0)
         
+        logger.info("Sending snapshot to user")
         await update.message.reply_photo(photo=bio, caption="📸 Snapshot")
 
     def run(self):
@@ -132,11 +151,13 @@ class TelegramBot:
         
         # Retry loop for network issues
         while True:
+            loop = None
             try:
                 # Create a new event loop for each attempt to avoid "Event loop is closed" errors
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
+                logger.info("Starting polling connection to Telegram...")
                 self.app.run_polling(
                     poll_interval=2.0,
                     timeout=30,
@@ -151,9 +172,10 @@ class TelegramBot:
 
             except Exception as e:
                 logger.error(f"Telegram connection failed: {e}. Retrying in 5s...")
+                logger.debug(f"Exception details: {type(e).__name__}: {str(e)}")
                 try:
                     # Attempt to clean up the loop if it's still open
-                    if 'loop' in locals() and not loop.is_closed():
+                    if loop is not None and not loop.is_closed():
                         loop.close()
                 except Exception as cleanup_error:
                     logger.error(f"Error cleaning up loop: {cleanup_error}")
