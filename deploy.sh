@@ -38,7 +38,7 @@ setup_variable() {
             # Create a temporary file for safe atomic update
             temp_file=$(mktemp) || { echo "Error: Failed to create temporary file"; return 1; }
             # Replace the line while preserving all characters
-            while IFS= read -r line; do
+            while IFS= read -r line || [ -n "$line" ]; do
                 case "$line" in
                     "$var_name="*)
                         printf '%s=%s\n' "$var_name" "$user_input"
@@ -52,7 +52,16 @@ setup_variable() {
             mv "$temp_file" "$ENV_FILE" || { echo "Error: Failed to update .env file"; rm -f "$temp_file"; return 1; }
             echo "✅ $var_name updated."
         else
-            echo "⚠️  Skipping $var_name (keeping current value)."
+            # User skipped input - check if it's still a placeholder
+            if [ "$current_val" = "$placeholder" ]; then
+                if [ "$var_name" = "TELEGRAM_BOT_TOKEN" ] || [ "$var_name" = "AUTHORIZED_USER_ID" ]; then
+                    echo "ℹ️  Telegram bot will be disabled. You can configure it later by editing .env"
+                else
+                    echo "⚠️  $var_name is still set to placeholder. Application may not work correctly."
+                fi
+            else
+                echo "⚠️  Skipping $var_name (keeping current value)."
+            fi
         fi
     fi
 }
