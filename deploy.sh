@@ -26,12 +26,23 @@ setup_variable() {
     # If value is empty or still the placeholder, ask the user
     if [ -z "$current_val" ] || [ "$current_val" = "$placeholder" ]; then
         echo -n "$prompt_msg: "
-        read user_input
+        read -r user_input
         if [ -n "$user_input" ]; then
-            # Escape special characters for sed (using | as delimiter to avoid @ conflicts)
-            escaped_input=$(printf '%s\n' "$user_input" | sed 's/[&|\\]/\\&/g')
-            # Update the line in .env (using | as delimiter)
-            sed -i "s|^$var_name=.*|$var_name=$escaped_input|" "$ENV_FILE"
+            # Create a temporary file for safe atomic update
+            temp_file=$(mktemp)
+            # Replace the line while preserving all characters
+            while IFS= read -r line; do
+                case "$line" in
+                    "$var_name="*)
+                        printf '%s=%s\n' "$var_name" "$user_input"
+                        ;;
+                    *)
+                        printf '%s\n' "$line"
+                        ;;
+                esac
+            done < "$ENV_FILE" > "$temp_file"
+            # Atomic replacement
+            mv "$temp_file" "$ENV_FILE"
             echo "✅ $var_name updated."
         fi
     fi
