@@ -6,6 +6,10 @@ ENV_FILE=".env"
 EXAMPLE_FILE=".env.example"
 
 if [ ! -f "$ENV_FILE" ]; then
+    if [ ! -f "$EXAMPLE_FILE" ]; then
+        echo "Error: $EXAMPLE_FILE not found. Cannot create configuration."
+        exit 1
+    fi
     echo "Config file (.env) not found. Creating from example..."
     cp "$EXAMPLE_FILE" "$ENV_FILE"
 fi
@@ -20,12 +24,14 @@ setup_variable() {
     current_val=$(grep "^$var_name=" "$ENV_FILE" | cut -d'=' -f2-)
     
     # If value is empty or still the placeholder, ask the user
-    if [ -z "$current_val" ] || [ "$current_val" == "$placeholder" ]; then
+    if [ -z "$current_val" ] || [ "$current_val" = "$placeholder" ]; then
         echo -n "$prompt_msg: "
         read user_input
-        if [ ! -z "$user_input" ]; then
-            # Update the line in .env
-            sed -i "s@^$var_name=.*@$var_name=$user_input@" "$ENV_FILE"
+        if [ -n "$user_input" ]; then
+            # Escape special characters for sed (using | as delimiter to avoid @ conflicts)
+            escaped_input=$(printf '%s\n' "$user_input" | sed 's/[&|\\]/\\&/g')
+            # Update the line in .env (using | as delimiter)
+            sed -i "s|^$var_name=.*|$var_name=$escaped_input|" "$ENV_FILE"
             echo "✅ $var_name updated."
         fi
     fi
