@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import io
+import time
 import cv2
 from PIL import Image
 from telegram import Update
@@ -124,9 +125,24 @@ class TelegramBot:
 
     def run(self):
         """Run the bot (blocking). Should be run in a separate thread."""
-        if self.app:
-            logger.info("Telegram Bot polling started...")
-            # Create a new event loop for this thread
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            self.app.run_polling()
+        if not self.app:
+            return
+
+        logger.info("Telegram Bot polling started...")
+        
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        # Retry loop for network issues
+        while True:
+            try:
+                self.app.run_polling(
+                    poll_interval=2.0,
+                    timeout=30,
+                    bootstrap_retries=-1  # Infinite retries on startup
+                )
+                break # If run_polling returns naturally (stop signal), exit loop
+            except Exception as e:
+                logger.error(f"Telegram connection failed: {e}. Retrying in 5s...")
+                time.sleep(5)
