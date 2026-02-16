@@ -193,7 +193,7 @@ class TelegramBot:
         await update.message.reply_photo(photo=bio, caption=caption)
         
         # If there are detections, also send a collage of individual crops
-        if detections and len(detections) > 0:
+        if detections:
             try:
                 logger.info("Creating detection crops collage...")
                 collage = create_latest_detections_collage(

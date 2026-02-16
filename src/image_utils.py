@@ -260,8 +260,8 @@ def create_latest_detections_collage(frame, detections: List[Detection],
             except:
                 font = ImageFont.load_default()
             
-            # Text background
-            draw.rectangle([(0, 0), (target_size[0], 35)], fill=(0, 0, 0, 180))
+            # Text background - use simple opaque background for efficiency
+            draw.rectangle([(0, 0), (target_size[0], 35)], fill=(0, 0, 0))
             draw.text((5, 5), label, fill='white', font=font)
             
             crops.append(crop_pil)
