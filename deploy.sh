@@ -57,8 +57,8 @@ setup_variable() {
     fi
 }
 
-setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here" "secret"
-setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here"
+setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here" "secret" || exit 1
+setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here" || exit 1
 
 # --- Standard Deployment ---
 # Check if venv exists
