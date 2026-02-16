@@ -1,0 +1,47 @@
+import os
+from pathlib import Path
+from dotenv import load_dotenv
+
+# Load environment variables from .env file
+ENV_FILE = Path(__file__).parent.parent / ".env"
+load_dotenv(ENV_FILE)
+
+# ============================================================================
+# Telegram Configuration
+# ============================================================================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+AUTHORIZED_USER_ID = os.getenv("AUTHORIZED_USER_ID", "")
+
+# ============================================================================
+# Camera Configuration
+# ============================================================================
+CAMERA_ID = int(os.getenv("CAMERA_ID", "0"))
+CAMERA_RESOLUTION = (640, 480)  # (width, height)
+CAMERA_FPS = 30
+CAMERA_WARMUP_FRAMES = 5  # Discard first N frames to let camera stabilize
+
+# ============================================================================
+# Motion Detection Configuration
+# ============================================================================
+MOTION_CANNY_THRESHOLD_LOW = int(os.getenv("MOTION_CANNY_LOW", "50"))
+MOTION_CANNY_THRESHOLD_HIGH = int(os.getenv("MOTION_CANNY_HIGH", "150"))
+MOTION_CHANGED_PIXELS_THRESHOLD = float(os.getenv("MOTION_PIXEL_THRESHOLD", "0.5"))  # % of pixels changed
+MOTION_COOLDOWN_SECONDS = float(os.getenv("MOTION_COOLDOWN", "2.0"))
+
+# ============================================================================
+# YOLO Configuration
+# ============================================================================
+YOLO_MODEL = "yolov8n"  # Lightweight model
+YOLO_CONFIDENCE_THRESHOLD = float(os.getenv("YOLO_CONFIDENCE", "0.5"))
+YOLO_ENABLE_TRACKING = True
+
+# ============================================================================
+# Data Management
+# ============================================================================
+DETECTION_HISTORY_MAXLEN = 1000  # Auto-purge old detections
+TELEGRAM_IMAGE_QUALITY = 60  # JPEG quality for Telegram (0-100)
+
+# ============================================================================
+# Logging
+# ============================================================================
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
