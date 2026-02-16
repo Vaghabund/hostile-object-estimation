@@ -13,6 +13,7 @@ class Detection:
     confidence: float
     track_id: Optional[int]
     bbox: List[int]  # [x1, y1, x2, y2]
+    thumbnail: Optional[bytes] = field(default=None, repr=False)
 
     def to_dict(self):
         return {

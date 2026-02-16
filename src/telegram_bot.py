@@ -5,6 +5,7 @@ import time
 import cv2
 from PIL import Image
 from telegram import Update
+from telegram.error import NetworkError
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from config.settings import (
     TELEGRAM_BOT_TOKEN, 
@@ -15,8 +16,7 @@ from src.shared_state import SharedState
 from src.stats import StatsGenerator
 from src.image_utils import (
     draw_detections_on_frame,
-    create_detection_collage_from_history,
-    create_latest_detections_collage
+    create_detection_collage_from_history
 )
 
 logger = logging.getLogger(__name__)
@@ -195,33 +195,11 @@ class TelegramBot:
         bio.seek(0)
         
         logger.info("Sending annotated snapshot to user")
-        await update.message.reply_photo(photo=bio, caption=caption)
+        sent_photo = await self._reply_photo_with_retry(update, bio, caption)
+        if not sent_photo:
+            return
         
-        # If there are detections, also send a collage of individual crops
-        if detections:
-            try:
-                logger.info("Creating detection crops collage...")
-                collage = create_latest_detections_collage(
-                    frame, 
-                    detections,
-                    max_crops=9,
-                    target_size=(150, 150),
-                    collage_width=3
-                )
-                
-                if collage:
-                    bio_collage = io.BytesIO()
-                    collage.save(bio_collage, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
-                    bio_collage.seek(0)
-                    
-                    await update.message.reply_photo(
-                        photo=bio_collage,
-                        caption=f"🔍 Detected Objects ({len(detections)})"
-                    )
-                    logger.info("Detection collage sent successfully")
-            except Exception as e:
-                logger.error(f"Error creating detection collage: {e}", exc_info=True)
-                # Don't fail the command, main image was already sent
+        # Skip sending individual detection crops to avoid duplicate images
 
     def run(self):
         """Run the bot (blocking). Should be run in a separate thread."""
@@ -262,3 +240,35 @@ class TelegramBot:
                     logger.error(f"Error cleaning up loop: {cleanup_error}")
                 
                 time.sleep(5)
+
+    async def _reply_photo_with_retry(self, update: Update, bio: io.BytesIO, caption: str, retries: int = 3) -> bool:
+        """Attempt to send a photo and retry on transient network errors."""
+        if not update.message:
+            return False
+
+        for attempt in range(1, retries + 1):
+            try:
+                bio.seek(0)
+                await update.message.reply_photo(photo=bio, caption=caption)
+                return True
+            except NetworkError as exc:
+                logger.warning(
+                    "Telegram photo send failed (attempt %d/%d): %s",
+                    attempt,
+                    retries,
+                    exc,
+                )
+                if attempt == retries:
+                    await update.message.reply_text(
+                        "⚠️ Failed to deliver image due to network issues."
+                    )
+                    return False
+                await asyncio.sleep(2)
+            except Exception:
+                logger.exception("Unexpected error while sending photo")
+                await update.message.reply_text(
+                    "⚠️ Unexpected error while sending image."
+                )
+                return False
+
+        return False

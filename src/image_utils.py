@@ -3,14 +3,79 @@ Image utility functions for drawing bounding boxes and creating collages.
 Optimized for low hardware specs and efficient memory usage.
 """
 import cv2
-import numpy as np
-from collections import Counter
-from PIL import Image, ImageDraw, ImageFont
+import io
 import logging
-from typing import List
+import time
+from PIL import Image, ImageDraw, ImageFont
+from typing import List, Optional, Tuple
 from src.shared_state import Detection
 
 logger = logging.getLogger(__name__)
+
+
+def _resample_high_quality():
+    """Return a high-quality resample filter compatible with multiple Pillow versions."""
+    resampling = getattr(Image, "Resampling", None)
+    if resampling and hasattr(resampling, "LANCZOS"):
+        return resampling.LANCZOS
+    if hasattr(Image, "LANCZOS"):
+        return Image.LANCZOS
+    return Image.ANTIALIAS
+
+
+def _create_detection_crop(frame, det: Detection, target_size: Tuple[int, int], padding: float = 0.1) -> Optional[Image.Image]:
+    """Crop and resize a detection region from the frame."""
+    if frame is None or not det or not det.bbox:
+        return None
+
+    try:
+        x1, y1, x2, y2 = det.bbox
+        width = max(1, x2 - x1)
+        height = max(1, y2 - y1)
+        pad_x = int(width * padding)
+        pad_y = int(height * padding)
+
+        h, w = frame.shape[:2]
+        x1 = max(0, x1 - pad_x)
+        y1 = max(0, y1 - pad_y)
+        x2 = min(w, x2 + pad_x)
+        y2 = min(h, y2 + pad_y)
+
+        if x2 <= x1 or y2 <= y1:
+            return None
+
+        crop = frame[y1:y2, x1:x2]
+        if crop.size == 0:
+            return None
+
+        crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
+        resized = cv2.resize(crop_rgb, target_size, interpolation=cv2.INTER_AREA)
+        return Image.fromarray(resized)
+    except Exception as exc:
+        logger.warning("Failed to create crop for %s: %s", det.class_name, exc)
+        return None
+
+
+def attach_detection_thumbnails(frame, detections: List[Detection], target_size: Tuple[int, int] = (200, 200), quality: int = 70) -> None:
+    """Attach serialized thumbnails to detections for later collages."""
+    if frame is None or not detections:
+        return
+
+    for det in detections:
+        if det.thumbnail is not None:
+            continue
+
+        crop_image = _create_detection_crop(frame, det, target_size)
+        if crop_image is None:
+            continue
+
+        try:
+            buffer = io.BytesIO()
+            crop_image.save(buffer, "JPEG", quality=quality, optimize=True)
+            det.thumbnail = buffer.getvalue()
+        except Exception as exc:
+            logger.warning("Failed to serialize thumbnail for %s: %s", det.class_name, exc)
+
 
 def draw_detections_on_frame(frame, detections: List[Detection]):
     """
@@ -87,72 +152,75 @@ def draw_detections_on_frame(frame, detections: List[Detection]):
 
 
 def create_detection_collage_from_history(detections: List[Detection],
-                                          max_images=12):
-    """
-    Create a text-based summary collage since we don't store historical frames.
-    For low hardware, we avoid storing frames in memory.
-    
-    Args:
-        detections: List of Detection objects
-        max_images: Maximum items to show
-        
-    Returns:
-        PIL Image with text summary, or None if no detections
-    """
+                                          max_images: int = 12,
+                                          target_size: Tuple[int, int] = (200, 200),
+                                          collage_width: int = 3):
+    """Build a collage of detection thumbnails ordered by recency."""
     if not detections:
         return None
-    
-    # Group detections by class (count all detections, but limit display if needed)
-    class_counts = Counter(det.class_name for det in detections)
-    
-    # Create a simple visualization as a bar chart
-    # Calculate dimensions
-    img_width = 600
-    img_height = max(300, len(class_counts) * 50 + 100)
-    
-    # Create white background
-    img = Image.new('RGB', (img_width, img_height), color='white')
-    
-    # Use PIL ImageDraw to create visualization
-    draw = ImageDraw.Draw(img)
-    
+
     try:
-        # Try to use default font, fall back to basic if not available
-        font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
-        small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
+        font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
+        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
     except (OSError, IOError):
-        font = ImageFont.load_default()
-        small_font = ImageFont.load_default()
-    
-    # Title
-    draw.text((20, 20), "Detection Summary", fill='black', font=font)
-    draw.text((20, 50), f"Total: {len(detections)} detections", 
-              fill='gray', font=small_font)
-    
-    # Draw bars
-    y_offset = 90
-    max_count = max(class_counts.values()) if class_counts else 1
-    bar_max_width = img_width - 200
-    
-    for class_name, count in class_counts.most_common():
-        # Label
-        draw.text((20, y_offset), f"{class_name}:", fill='black', font=small_font)
-        
-        # Bar
-        bar_width = int((count / max_count) * bar_max_width)
+        font_main = ImageFont.load_default()
+        font_small = ImageFont.load_default()
+
+    sorted_detections = sorted(detections, key=lambda d: d.timestamp, reverse=True)
+    resample_filter = _resample_high_quality()
+    tiles: List[Image.Image] = []
+
+    for det in sorted_detections:
+        if det.thumbnail is None:
+            continue
+
+        try:
+            thumb = Image.open(io.BytesIO(det.thumbnail)).convert("RGB")
+        except Exception as exc:
+            logger.warning("Failed to load stored thumbnail for %s: %s", det.class_name, exc)
+            continue
+
+        if thumb.size != target_size:
+            thumb = thumb.resize(target_size, resample_filter)
+
+        draw = ImageDraw.Draw(thumb)
+        overlay_height = 46
         draw.rectangle(
-            [(150, y_offset), (150 + bar_width, y_offset + 30)],
-            fill='#4CAF50',
-            outline='#2E7D32'
+            [
+                (0, target_size[1] - overlay_height),
+                (target_size[0], target_size[1])
+            ],
+            fill=(0, 0, 0)
         )
-        
-        # Count
-        draw.text((160 + bar_width, y_offset + 5), str(count), 
-                 fill='black', font=small_font)
-        
-        y_offset += 45
-    
-    return img
+
+        timestamp_text = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(det.timestamp))
+        label = f"{det.class_name} ({det.confidence:.2f})"
+
+        draw.text((6, target_size[1] - overlay_height + 6), label, fill='white', font=font_main)
+        draw.text((6, target_size[1] - overlay_height + 24), timestamp_text, fill='white', font=font_small)
+
+        tiles.append(thumb)
+
+        if len(tiles) >= max_images:
+            break
+
+    if not tiles:
+        return None
+
+    rows = (len(tiles) + collage_width - 1) // collage_width
+    collage_height = rows * target_size[1]
+    collage_width_px = collage_width * target_size[0]
+
+    collage = Image.new('RGB', (collage_width_px, collage_height), color='black')
+
+    for idx, tile in enumerate(tiles):
+        row = idx // collage_width
+        col = idx % collage_width
+        x = col * target_size[0]
+        y = row * target_size[1]
+        collage.paste(tile, (x, y))
+
+    return collage
 
 
 def create_latest_detections_collage(frame, detections: List[Detection],
@@ -180,61 +248,22 @@ def create_latest_detections_collage(frame, detections: List[Detection],
     crops = []
     
     for det in detections_to_use:
-        try:
-            x1, y1, x2, y2 = det.bbox
-            
-            # Add some padding (10% of bbox size)
-            width = x2 - x1
-            height = y2 - y1
-            pad_x = int(width * 0.1)
-            pad_y = int(height * 0.1)
-            
-            # Ensure coordinates are within frame bounds
-            h, w = frame.shape[:2]
-            x1 = max(0, x1 - pad_x)
-            y1 = max(0, y1 - pad_y)
-            x2 = min(w, x2 + pad_x)
-            y2 = min(h, y2 + pad_y)
-            
-            # Ensure we have a valid region after clamping
-            if x2 <= x1 or y2 <= y1:
-                # Skip invalid or empty regions near frame boundaries
-                continue
-            
-            # Crop the detection
-            crop = frame[y1:y2, x1:x2]
-            
-            if crop.size == 0:
-                continue
-            
-            # Convert BGR to RGB
-            crop_rgb = cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)
-            
-            # Resize to target size
-            crop_resized = cv2.resize(crop_rgb, target_size, interpolation=cv2.INTER_AREA)
-            
-            # Convert to PIL Image
-            crop_pil = Image.fromarray(crop_resized)
-            
-            # Add label
-            draw = ImageDraw.Draw(crop_pil)
-            label = f"{det.class_name}\n{det.confidence:.2f}"
-            
-            # Draw semi-transparent background for text
-            try:
-                font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
-            except (OSError, IOError):
-                font = ImageFont.load_default()
-            
-            # Text background - use simple opaque background for efficiency
-            draw.rectangle([(0, 0), (target_size[0], 35)], fill=(0, 0, 0))
-            draw.text((5, 5), label, fill='white', font=font)
-            
-            crops.append(crop_pil)
-            
-        except Exception as e:
-            logger.warning(f"Failed to crop detection: {e}")
+        crop_pil = _create_detection_crop(frame, det, target_size)
+        if crop_pil is None:
             continue
+
+        draw = ImageDraw.Draw(crop_pil)
+        label = f"{det.class_name}\n{det.confidence:.2f}"
+
+        try:
+            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
+        except (OSError, IOError):
+            font = ImageFont.load_default()
+
+        draw.rectangle([(0, 0), (target_size[0], 35)], fill=(0, 0, 0))
+        draw.text((5, 5), label, fill='white', font=font)
+
+        crops.append(crop_pil)
     
     if not crops:
         return None

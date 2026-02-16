@@ -14,6 +14,7 @@ import threading
 from src.telegram_bot import TelegramBot
 from src.shared_state import SharedState
 from src.stats import StatsGenerator
+from src.image_utils import attach_detection_thumbnails
 
 # Setup logging
 logging.basicConfig(
@@ -72,21 +73,20 @@ def main():
             if motion_detector.detect(frame):
                 # Phase 3: YOLO Inference (triggered by motion)
                 detections = yolo_detector.detect(frame)
-                
+
+                # Always refresh the frame snapshot so /scan sees the latest image
+                shared_state.update_frame_with_detections(frame, detections)
+
                 if detections:
+                    attach_detection_thumbnails(frame, detections)
                     shared_state.add_detections(detections)
-                    # Update shared state with frame and associated detections
-                    shared_state.update_frame_with_detections(frame, detections)
                     
                     # Simple console output for now
                     for d in detections:
                         logger.info(f"DETECTED: {d.class_name} ({d.confidence:.2f}) ID: {d.track_id}")
-                else:
-                    # Update frame with no detections, clearing any stale detection state
-                    shared_state.update_frame_with_detections(frame, [])
             else:
-                # Update frame even when no motion, and clear detections
-                shared_state.update_frame_with_detections(frame, [])
+                # Keep the newest frame available without discarding the last detections
+                shared_state.update_frame(frame)
 
             # Debug: Show FPS every 30 frames
             # TODO: Phase 4 - Logging will go here
