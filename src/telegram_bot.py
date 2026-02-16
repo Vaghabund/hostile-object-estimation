@@ -130,19 +130,32 @@ class TelegramBot:
 
         logger.info("Telegram Bot polling started...")
         
-        # Create a new event loop for this thread
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        
         # Retry loop for network issues
         while True:
             try:
+                # Create a new event loop for each attempt to avoid "Event loop is closed" errors
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+
                 self.app.run_polling(
                     poll_interval=2.0,
                     timeout=30,
-                    bootstrap_retries=-1  # Infinite retries on startup
+                    bootstrap_retries=-1,  # Infinite retries on startup
+                    close_loop=False       # Don't close the loop automatically so we can manage it
                 )
-                break # If run_polling returns naturally (stop signal), exit loop
+                
+                # If we get here, it exited cleanly
+                if not loop.is_closed():
+                    loop.close()
+                break
+
             except Exception as e:
                 logger.error(f"Telegram connection failed: {e}. Retrying in 5s...")
+                try:
+                    # Attempt to clean up the loop if it's still open
+                    if 'loop' in locals() and not loop.is_closed():
+                        loop.close()
+                except Exception as cleanup_error:
+                    logger.error(f"Error cleaning up loop: {cleanup_error}")
+                
                 time.sleep(5)
