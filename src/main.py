@@ -82,11 +82,11 @@ def main():
                     for d in detections:
                         logger.info(f"DETECTED: {d.class_name} ({d.confidence:.2f}) ID: {d.track_id}")
                 else:
-                    # Update frame without detections
-                    shared_state.update_frame(frame)
+                    # Update frame with no detections, clearing any stale detection state
+                    shared_state.update_frame_with_detections(frame, [])
             else:
-                # Update frame even when no motion
-                shared_state.update_frame(frame)
+                # Update frame even when no motion, and clear detections
+                shared_state.update_frame_with_detections(frame, [])
 
             # Debug: Show FPS every 30 frames
             # TODO: Phase 4 - Logging will go here

@@ -4,7 +4,8 @@ Optimized for low hardware specs and efficient memory usage.
 """
 import cv2
 import numpy as np
-from PIL import Image
+from collections import Counter
+from PIL import Image, ImageDraw, ImageFont
 import logging
 from typing import List
 from src.shared_state import Detection
@@ -85,44 +86,8 @@ def draw_detections_on_frame(frame, detections: List[Detection]):
     return annotated_frame
 
 
-def create_detection_collage(detections: List[Detection], frame_getter, 
-                             max_images=12, target_size=(120, 120),
-                             collage_width=4):
-    """
-    Create a collage from recent detections.
-    Optimized for low memory usage.
-    
-    Args:
-        detections: List of Detection objects (most recent first)
-        frame_getter: Function to get frames by timestamp
-        max_images: Maximum number of crops to include
-        target_size: Size to resize each crop (width, height)
-        collage_width: Number of images per row
-        
-    Returns:
-        PIL Image of the collage, or None if no valid crops
-    """
-    if not detections:
-        return None
-    
-    # Limit number of images for memory efficiency
-    detections_to_use = detections[:max_images]
-    crops = []
-    
-    for det in detections_to_use:
-        # Get the frame (assuming we can still access it)
-        # For now, we'll skip this as we don't store historical frames
-        # This function will be called with the latest detections and frame
-        # So we need a different approach
-        pass
-    
-    # This function needs to be called differently - see create_detection_collage_from_history
-    return None
-
-
 def create_detection_collage_from_history(detections: List[Detection],
-                                          max_images=12, 
-                                          collage_width=4):
+                                          max_images=12):
     """
     Create a text-based summary collage since we don't store historical frames.
     For low hardware, we avoid storing frames in memory.
@@ -130,7 +95,6 @@ def create_detection_collage_from_history(detections: List[Detection],
     Args:
         detections: List of Detection objects
         max_images: Maximum items to show
-        collage_width: Items per row (for formatting)
         
     Returns:
         PIL Image with text summary, or None if no detections
@@ -138,9 +102,8 @@ def create_detection_collage_from_history(detections: List[Detection],
     if not detections:
         return None
     
-    # Group detections by class
-    from collections import Counter
-    class_counts = Counter(det.class_name for det in detections[-max_images:])
+    # Group detections by class (count all detections, but limit display if needed)
+    class_counts = Counter(det.class_name for det in detections)
     
     # Create a simple visualization as a bar chart
     # Calculate dimensions
@@ -151,20 +114,19 @@ def create_detection_collage_from_history(detections: List[Detection],
     img = Image.new('RGB', (img_width, img_height), color='white')
     
     # Use PIL ImageDraw to create visualization
-    from PIL import ImageDraw, ImageFont
     draw = ImageDraw.Draw(img)
     
     try:
         # Try to use default font, fall back to basic if not available
         font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 20)
         small_font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 14)
-    except:
+    except (OSError, IOError):
         font = ImageFont.load_default()
         small_font = ImageFont.load_default()
     
     # Title
     draw.text((20, 20), "Detection Summary", fill='black', font=font)
-    draw.text((20, 50), f"Total: {len(detections[-max_images:])} detections", 
+    draw.text((20, 50), f"Total: {len(detections)} detections", 
               fill='gray', font=small_font)
     
     # Draw bars
@@ -234,6 +196,11 @@ def create_latest_detections_collage(frame, detections: List[Detection],
             x2 = min(w, x2 + pad_x)
             y2 = min(h, y2 + pad_y)
             
+            # Ensure we have a valid region after clamping
+            if x2 <= x1 or y2 <= y1:
+                # Skip invalid or empty regions near frame boundaries
+                continue
+            
             # Crop the detection
             crop = frame[y1:y2, x1:x2]
             
@@ -250,14 +217,13 @@ def create_latest_detections_collage(frame, detections: List[Detection],
             crop_pil = Image.fromarray(crop_resized)
             
             # Add label
-            from PIL import ImageDraw, ImageFont
             draw = ImageDraw.Draw(crop_pil)
             label = f"{det.class_name}\n{det.confidence:.2f}"
             
             # Draw semi-transparent background for text
             try:
                 font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
-            except:
+            except (OSError, IOError):
                 font = ImageFont.load_default()
             
             # Text background - use simple opaque background for efficiency

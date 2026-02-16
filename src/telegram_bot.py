@@ -121,10 +121,15 @@ class TelegramBot:
             with self.state._lock:
                 recent_detections = list(self.state.detections)
             
-            if recent_detections:
-                logger.info("Creating visual summary collage...")
+            # Filter detections to only those from the last 24 hours
+            now = time.time()
+            cutoff_time = now - (24 * 3600)
+            detections_24h = [d for d in recent_detections if d.timestamp >= cutoff_time]
+            
+            if detections_24h:
+                logger.info(f"Creating visual summary collage for {len(detections_24h)} detections from last 24h...")
                 collage = create_detection_collage_from_history(
-                    recent_detections, 
+                    detections_24h, 
                     max_images=20
                 )
                 
@@ -135,13 +140,13 @@ class TelegramBot:
                     
                     await update.message.reply_photo(
                         photo=bio, 
-                        caption="📊 Visual Summary"
+                        caption="📊 Visual Summary (Last 24h)"
                     )
                     logger.info("Visual summary sent successfully")
                 else:
                     logger.warning("Failed to create collage")
             else:
-                logger.info("No detections available for visual summary")
+                logger.info("No detections from the last 24h available for visual summary")
                 
         except Exception as e:
             logger.error(f"Error creating visual summary: {e}", exc_info=True)
