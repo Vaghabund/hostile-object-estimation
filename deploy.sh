@@ -21,8 +21,8 @@ setup_variable() {
     local placeholder=$3
     local is_secret=$4  # Optional: if "secret", hide input
     
-    # Get current value from .env
-    current_val=$(grep "^$var_name=" "$ENV_FILE" | cut -d'=' -f2-)
+    # Get current value from .env (using -F for literal string matching)
+    current_val=$(grep -F "$var_name=" "$ENV_FILE" | cut -d'=' -f2-)
     
     # If value is empty or still the placeholder, ask the user
     if [ -z "$current_val" ] || [ "$current_val" = "$placeholder" ]; then
@@ -51,6 +51,8 @@ setup_variable() {
             # Atomic replacement
             mv "$temp_file" "$ENV_FILE" || { echo "Error: Failed to update .env file"; rm -f "$temp_file"; return 1; }
             echo "✅ $var_name updated."
+        else
+            echo "⚠️  Skipping $var_name (keeping current value)."
         fi
     fi
 }
