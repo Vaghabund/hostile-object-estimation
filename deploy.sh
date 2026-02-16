@@ -19,6 +19,7 @@ setup_variable() {
     local var_name=$1
     local prompt_msg=$2
     local placeholder=$3
+    local is_secret=$4  # Optional: if "secret", hide input
     
     # Get current value from .env
     current_val=$(grep "^$var_name=" "$ENV_FILE" | cut -d'=' -f2-)
@@ -26,10 +27,16 @@ setup_variable() {
     # If value is empty or still the placeholder, ask the user
     if [ -z "$current_val" ] || [ "$current_val" = "$placeholder" ]; then
         echo -n "$prompt_msg: "
-        read -r user_input
+        if [ "$is_secret" = "secret" ]; then
+            # For sensitive data, don't echo input
+            read -rs user_input
+            echo  # Print newline after hidden input
+        else
+            read -r user_input
+        fi
         if [ -n "$user_input" ]; then
             # Create a temporary file for safe atomic update
-            temp_file=$(mktemp)
+            temp_file=$(mktemp) || { echo "Error: Failed to create temporary file"; return 1; }
             # Replace the line while preserving all characters
             while IFS= read -r line; do
                 case "$line" in
@@ -42,13 +49,13 @@ setup_variable() {
                 esac
             done < "$ENV_FILE" > "$temp_file"
             # Atomic replacement
-            mv "$temp_file" "$ENV_FILE"
+            mv "$temp_file" "$ENV_FILE" || { echo "Error: Failed to update .env file"; rm -f "$temp_file"; return 1; }
             echo "✅ $var_name updated."
         fi
     fi
 }
 
-setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here"
+setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here" "secret"
 setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here"
 
 # --- Standard Deployment ---
