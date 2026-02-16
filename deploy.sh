@@ -1,6 +1,40 @@
 #!/bin/bash
 echo "Starting Hostile Object Estimation System..."
 
+# --- Configuration Check ---
+ENV_FILE=".env"
+EXAMPLE_FILE=".env.example"
+
+if [ ! -f "$ENV_FILE" ]; then
+    echo "Config file (.env) not found. Creating from example..."
+    cp "$EXAMPLE_FILE" "$ENV_FILE"
+fi
+
+# Function to check and prompt for variables
+setup_variable() {
+    local var_name=$1
+    local prompt_msg=$2
+    local placeholder=$3
+    
+    # Get current value from .env
+    current_val=$(grep "^$var_name=" "$ENV_FILE" | cut -d'=' -f2-)
+    
+    # If value is empty or still the placeholder, ask the user
+    if [ -z "$current_val" ] || [ "$current_val" == "$placeholder" ]; then
+        echo -n "$prompt_msg: "
+        read user_input
+        if [ ! -z "$user_input" ]; then
+            # Update the line in .env
+            sed -i "s@^$var_name=.*@$var_name=$user_input@" "$ENV_FILE"
+            echo "✅ $var_name updated."
+        fi
+    fi
+}
+
+setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here"
+setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here"
+
+# --- Standard Deployment ---
 # Check if venv exists
 if [ ! -d ".venv" ]; then
     echo "Creating virtual environment..."
