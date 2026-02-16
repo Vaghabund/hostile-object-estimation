@@ -33,6 +33,7 @@ class SharedState:
         # Latest frame for snapshots
         self.latest_frame = None  
         self.latest_frame_time = 0
+        self.latest_detections = []  # Detections associated with latest_frame
         
         # Detection history (auto-purging)
         self.detections = deque(maxlen=DETECTION_HISTORY_MAXLEN)
@@ -67,6 +68,20 @@ class SharedState:
     def get_latest_frame(self):
         with self._lock:
             return self.latest_frame.copy() if self.latest_frame is not None else None
+
+    def get_latest_frame_with_detections(self):
+        """Get latest frame and its associated detections."""
+        with self._lock:
+            frame_copy = self.latest_frame.copy() if self.latest_frame is not None else None
+            detections_copy = self.latest_detections.copy() if self.latest_detections else []
+            return frame_copy, detections_copy
+
+    def update_frame_with_detections(self, frame, detections):
+        """Update frame and store associated detections."""
+        with self._lock:
+            self.latest_frame = frame.copy() if frame is not None else None
+            self.latest_frame_time = time.time()
+            self.latest_detections = detections.copy() if detections else []
 
     def get_stats(self):
         with self._lock:
