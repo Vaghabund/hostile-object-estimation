@@ -18,17 +18,36 @@ from src.image_utils import (
     draw_detections_on_frame,
     create_detection_collage_from_history
 )
+from src.runtime_settings import RuntimeSettings
 
 logger = logging.getLogger(__name__)
+
+# COCO class names (80 classes that YOLOv8 can detect)
+YOLO_COCO_CLASSES = [
+    "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
+    "boat", "traffic light", "fire hydrant", "stop sign", "parking meter", "bench",
+    "bird", "cat", "dog", "horse", "sheep", "cow", "elephant", "bear", "zebra",
+    "giraffe", "backpack", "umbrella", "handbag", "tie", "suitcase", "frisbee",
+    "skis", "snowboard", "sports ball", "kite", "baseball bat", "baseball glove",
+    "skateboard", "surfboard", "tennis racket", "bottle", "wine glass", "cup",
+    "fork", "knife", "spoon", "bowl", "banana", "apple", "sandwich", "orange",
+    "broccoli", "carrot", "hot dog", "pizza", "donut", "cake", "chair", "couch",
+    "potted plant", "bed", "dining table", "toilet", "tv", "laptop", "mouse",
+    "remote", "keyboard", "cell phone", "microwave", "oven", "toaster", "sink",
+    "refrigerator", "book", "clock", "vase", "scissors", "teddy bear", "hair drier",
+    "toothbrush"
+]
 
 class TelegramBot:
     """
     Telegram bot for remote control and monitoring.
     Runs in its own thread/loop.
     """
-    def __init__(self, shared_state: SharedState):
+    def __init__(self, shared_state: SharedState, runtime_settings: RuntimeSettings):
         self.state = shared_state
+        self.settings = runtime_settings
         self.stats = StatsGenerator(shared_state)
+        self._last_network_error_log = 0.0
         
         if not TELEGRAM_BOT_TOKEN:
             logger.warning("Telegram Bot Token is missing! Bot will not start.")
@@ -57,6 +76,15 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("summary", self.cmd_summary))
         self.app.add_handler(CommandHandler("reset", self.cmd_reset))
         self.app.add_handler(CommandHandler("help", self.cmd_help))
+        
+        # Settings commands
+        self.app.add_handler(CommandHandler("settings", self.cmd_settings))
+        self.app.add_handler(CommandHandler("set", self.cmd_set))
+        self.app.add_handler(CommandHandler("classes", self.cmd_classes))
+        self.app.add_handler(CommandHandler("enable", self.cmd_enable))
+        self.app.add_handler(CommandHandler("disable", self.cmd_disable))
+        
+        self.app.add_error_handler(self._handle_error)
 
     def _check_auth(self, update: Update) -> bool:
         """Check if user is authorized."""
@@ -93,11 +121,18 @@ class TelegramBot:
         if not self._check_auth(update) or not update.message: return
         logger.info("Command /help received")
         await update.message.reply_text(
-            "📋 *Commands:*\n"
+            "📋 *Commands:*\n\n"
+            "*Monitoring:*\n"
             "/scan - Get current snapshot with detections\n"
             "/status - System status overview\n"
             "/summary - Last 24h stats with visual summary\n"
-            "/reset - Clear detection history\n"
+            "/reset - Clear detection history\n\n"
+            "*Settings:*\n"
+            "/settings - View current settings\n"
+            "/set <param> <value> - Change a setting\n"
+            "/classes - List available object classes\n"
+            "/enable <class> - Enable detection for class\n"
+            "/disable <class> - Disable detection for class\n\n"
             "/help - Show this menu",
             parse_mode="Markdown"
         )
@@ -186,6 +221,11 @@ class TelegramBot:
             caption = "📸 Snapshot - No detections"
         
         # Convert BGR (OpenCV) to RGB (Pillow)
+        if annotated_frame is None:
+            logger.warning("Annotated frame is empty; sending text fallback")
+            await update.message.reply_text("⚠️ Snapshot unavailable right now.")
+            return
+
         frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
         image = Image.fromarray(frame_rgb)
         
@@ -272,3 +312,195 @@ class TelegramBot:
                 return False
 
         return False
+
+    async def cmd_settings(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Display current runtime settings."""
+        if not self._check_auth(update) or not update.message: return
+        logger.info("Command /settings received")
+        
+        summary = self.settings.get_settings_summary()
+        help_text = (
+            "\n\n💡 *Modify settings with:*\n"
+            "`/set motion_canny_low 30`\n"
+            "`/set motion_canny_high 150`\n"
+            "`/set motion_threshold 0.5`\n"
+            "`/set motion_cooldown 2.0`\n"
+            "`/set yolo_confidence 0.6`\n"
+            "`/set stability_frames 3`\n"
+            "`/set stability_misses 2`"
+        )
+        
+        await update.message.reply_text(
+            summary + help_text,
+            parse_mode="Markdown"
+        )
+
+    async def cmd_set(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Set a runtime parameter."""
+        if not self._check_auth(update) or not update.message: return
+        logger.info("Command /set received")
+        
+        if not context.args or len(context.args) < 2:
+            await update.message.reply_text(
+                "❌ Usage: `/set <parameter> <value>`\n\n"
+                "Parameters:\n"
+                "• motion_canny_low (0-255)\n"
+                "• motion_canny_high (0-255)\n"
+                "• motion_threshold (0.0-100.0)\n"
+                "• motion_cooldown (seconds)\n"
+                "• yolo_confidence (0.0-1.0)\n"
+                "• stability_frames (min frames)\n"
+                "• stability_misses (max missed frames)",
+                parse_mode="Markdown"
+            )
+            return
+        
+        param = context.args[0].lower()
+        value_str = context.args[1]
+        
+        try:
+            if param == "motion_canny_low":
+                value = int(value_str)
+                self.settings.set_motion_canny_low(value)
+                await update.message.reply_text(f"✅ Motion Canny Low set to {value}")
+                
+            elif param == "motion_canny_high":
+                value = int(value_str)
+                self.settings.set_motion_canny_high(value)
+                await update.message.reply_text(f"✅ Motion Canny High set to {value}")
+                
+            elif param == "motion_threshold":
+                value = float(value_str)
+                self.settings.set_motion_pixel_threshold(value)
+                await update.message.reply_text(f"✅ Motion Pixel Threshold set to {value}%")
+                
+            elif param == "motion_cooldown":
+                value = float(value_str)
+                self.settings.set_motion_cooldown(value)
+                await update.message.reply_text(f"✅ Motion Cooldown set to {value}s")
+                
+            elif param == "yolo_confidence":
+                value = float(value_str)
+                self.settings.set_yolo_confidence(value)
+                await update.message.reply_text(f"✅ YOLO Confidence set to {value:.2f}")
+                
+            elif param == "stability_frames":
+                value = int(value_str)
+                self.settings.set_stability_frames(value)
+                await update.message.reply_text(f"✅ Stability Frames set to {value}")
+                
+            elif param == "stability_misses":
+                value = int(value_str)
+                self.settings.set_stability_max_misses(value)
+                await update.message.reply_text(f"✅ Stability Max Misses set to {value}")
+                
+            else:
+                await update.message.reply_text(f"❌ Unknown parameter: {param}")
+                
+        except ValueError as e:
+            await update.message.reply_text(f"❌ Invalid value: {value_str}")
+        except Exception as e:
+            logger.error(f"Error setting parameter: {e}")
+            await update.message.reply_text(f"❌ Error: {str(e)}")
+
+    async def cmd_classes(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """List available YOLO classes and their status."""
+        if not self._check_auth(update) or not update.message: return
+        logger.info("Command /classes received")
+        
+        enabled_classes = self.settings.get_enabled_classes()
+        
+        if not enabled_classes:
+            status_text = "✅ *All classes enabled*\n\n"
+        else:
+            status_text = f"⚙️ *Enabled: {len(enabled_classes)} classes*\n\n"
+        
+        status_text += (
+            "Use `/enable <class>` to enable specific class\n"
+            "Use `/disable <class>` to disable a class\n"
+            "Use `/enable all` to enable all classes\n\n"
+            "*Available classes:*\n"
+        )
+        
+        # Show first 20 classes as examples
+        for cls in YOLO_COCO_CLASSES[:20]:
+            if not enabled_classes or cls in enabled_classes:
+                status_text += f"✅ {cls}\n"
+            else:
+                status_text += f"❌ {cls}\n"
+        
+        status_text += f"\n...and {len(YOLO_COCO_CLASSES) - 20} more classes available"
+        
+        await update.message.reply_text(status_text, parse_mode="Markdown")
+
+    async def cmd_enable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Enable detection for a specific class."""
+        if not self._check_auth(update) or not update.message: return
+        logger.info("Command /enable received")
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Usage: `/enable <class_name>` or `/enable all`\n"
+                "Example: `/enable person`",
+                parse_mode="Markdown"
+            )
+            return
+        
+        class_name = " ".join(context.args).lower()
+        
+        if class_name == "all":
+            self.settings.set_enabled_classes(set())
+            await update.message.reply_text("✅ All classes enabled")
+        else:
+            self.settings.add_enabled_class(class_name)
+            await update.message.reply_text(f"✅ Class '{class_name}' enabled")
+
+    async def cmd_disable(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Disable detection for a specific class."""
+        if not self._check_auth(update) or not update.message: return
+        logger.info("Command /disable received")
+        
+        if not context.args:
+            await update.message.reply_text(
+                "❌ Usage: `/disable <class_name>`\n"
+                "Example: `/disable car`",
+                parse_mode="Markdown"
+            )
+            return
+        
+        class_name = " ".join(context.args).lower()
+        
+        enabled_classes = self.settings.get_enabled_classes()
+        
+        # If all classes are currently enabled, we need to enable all except this one
+        if not enabled_classes:
+            # Enable all COCO classes except the one being disabled
+            all_classes = set(YOLO_COCO_CLASSES)
+            all_classes.discard(class_name)
+            self.settings.set_enabled_classes(all_classes)
+            await update.message.reply_text(
+                f"✅ Class '{class_name}' disabled\n"
+                f"ℹ️ Other classes remain enabled. Use /classes to see all."
+            )
+        else:
+            self.settings.remove_enabled_class(class_name)
+            remaining = self.settings.get_enabled_classes()
+            if not remaining:
+                await update.message.reply_text(
+                    f"⚠️ All classes now disabled! Use `/enable all` to re-enable detection.",
+                    parse_mode="Markdown"
+                )
+            else:
+                await update.message.reply_text(f"✅ Class '{class_name}' disabled")
+
+    async def _handle_error(self, update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+        """Throttle noisy network errors so console stays readable."""
+        error = getattr(context, "error", None)
+        if isinstance(error, NetworkError):
+            now = time.monotonic()
+            if now - self._last_network_error_log >= 30:
+                logger.warning("Telegram connection hiccup detected, retrying quietly: %s", error)
+                self._last_network_error_log = now
+            return
+
+        logger.exception("Unhandled Telegram error", exc_info=error)

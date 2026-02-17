@@ -2,6 +2,10 @@ import os
 from pathlib import Path
 from dotenv import load_dotenv
 
+
+def _str_to_bool(value: str) -> bool:
+	return value.strip().lower() in {"1", "true", "yes", "on"}
+
 # Load environment variables from .env file
 ENV_FILE = Path(__file__).parent.parent / ".env"
 load_dotenv(ENV_FILE)
@@ -19,6 +23,8 @@ CAMERA_ID = int(os.getenv("CAMERA_ID", "0"))
 CAMERA_RESOLUTION = (640, 480)  # (width, height)
 CAMERA_FPS = 30
 CAMERA_WARMUP_FRAMES = 5  # Discard first N frames to let camera stabilize
+PREFER_EXTERNAL_CAMERA = _str_to_bool(os.getenv("PREFER_EXTERNAL_CAMERA", "true"))
+CAMERA_PROBE_LIMIT = int(os.getenv("CAMERA_PROBE_LIMIT", "3"))  # Max camera indices to check
 
 # ============================================================================
 # Motion Detection Configuration
@@ -40,6 +46,8 @@ YOLO_ENABLE_TRACKING = True
 # ============================================================================
 DETECTION_HISTORY_MAXLEN = 1000  # Auto-purge old detections
 TELEGRAM_IMAGE_QUALITY = 60  # JPEG quality for Telegram (0-100)
+DETECTION_STABILITY_FRAMES = int(os.getenv("DETECTION_STABILITY_FRAMES", "2"))
+DETECTION_STABILITY_MAX_MISSES = int(os.getenv("DETECTION_STABILITY_MAX_MISSES", "2"))
 
 # ============================================================================
 # Logging

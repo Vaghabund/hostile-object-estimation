@@ -82,6 +82,8 @@ All settings are in [config/settings.py](config/settings.py) and can be overridd
 | Setting | Default | Description |
 |---------|---------|-------------|
 | CAMERA_ID | 0 | OpenCV camera index |
+| PREFER_EXTERNAL_CAMERA | true | Auto-detect USB cameras (set to false to skip probing) |
+| CAMERA_PROBE_LIMIT | 3 | Max camera indices to check during auto-detection |
 | CAMERA_RESOLUTION | (640, 480) | Frame size (width, height) |
 | CAMERA_FPS | 30 | Target frames per second |
 | MOTION_CANNY_LOW | 50 | Canny edge detection threshold (low) |
@@ -90,9 +92,12 @@ All settings are in [config/settings.py](config/settings.py) and can be overridd
 | MOTION_COOLDOWN | 2.0 | Seconds between motion detections |
 | YOLO_CONFIDENCE | 0.5 | Min detection confidence (0.0-1.0) |
 | YOLO_MODEL | yolov8n | YOLOv8 model size (n=tiny, s=small, m=medium) |
+| DETECTION_STABILITY_FRAMES | 2 | Min consecutive frames before logging detection |
 | DETECTION_HISTORY_MAXLEN | 1000 | Max in-memory detections (auto-purge) |
 | TELEGRAM_IMAGE_QUALITY | 60 | JPEG quality for Telegram (0-100) |
 | LOG_LEVEL | INFO | Python logging level |
+
+**Tip:** For faster startup, set `PREFER_EXTERNAL_CAMERA=false` and specify `CAMERA_ID` directly if you know which camera to use.
 
 ## Notes
 

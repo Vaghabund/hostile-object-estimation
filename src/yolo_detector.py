@@ -1,12 +1,15 @@
 from ultralytics import YOLO
 import logging
 import time
+from typing import TYPE_CHECKING
 from config.settings import (
     YOLO_MODEL, 
-    YOLO_CONFIDENCE_THRESHOLD, 
     YOLO_ENABLE_TRACKING
 )
 from src.shared_state import Detection
+
+if TYPE_CHECKING:
+    from src.runtime_settings import RuntimeSettings
 
 logger = logging.getLogger(__name__)
 
@@ -14,7 +17,8 @@ class YOLODetector:
     """
     Wrapper for YOLOv8 inference and tracking.
     """
-    def __init__(self):
+    def __init__(self, runtime_settings: 'RuntimeSettings'):
+        self.settings = runtime_settings
         logger.info(f"Loading YOLO model: {YOLO_MODEL}...")
         try:
             # Fix for PyTorch 2.6+ weights_only=True default
@@ -50,19 +54,22 @@ class YOLODetector:
 
         start_time = time.time()
         
+        # Get current confidence threshold
+        conf_threshold = self.settings.get_yolo_confidence()
+        
         # Run inference (with tracking if enabled)
         # persist=True is crucial for tracking across frames
         if YOLO_ENABLE_TRACKING:
             results = self.model.track(
                 frame, 
-                conf=YOLO_CONFIDENCE_THRESHOLD, 
+                conf=conf_threshold, 
                 persist=True, 
                 verbose=False
             )
         else:
             results = self.model.predict(
                 frame, 
-                conf=YOLO_CONFIDENCE_THRESHOLD, 
+                conf=conf_threshold, 
                 verbose=False
             )
         
@@ -101,12 +108,16 @@ class YOLODetector:
                     continue
                 bbox = box.xyxy[0].cpu().numpy().astype(int).tolist()
                 
+                # Filter by enabled classes
+                if not self.settings.is_class_enabled(class_name):
+                    continue
+                
                 det = Detection(
-                    timestamp=timestamp,
-                    class_name=class_name,
-                    confidence=conf,
-                    track_id=track_id,
-                    bbox=bbox
+                    timestamp,
+                    class_name,
+                    conf,
+                    track_id,
+                    bbox
                 )
                 detections.append(det)
 

@@ -2,12 +2,10 @@ import cv2
 import time
 import logging
 import numpy as np
-from config.settings import (
-    MOTION_CANNY_THRESHOLD_LOW,
-    MOTION_CANNY_THRESHOLD_HIGH,
-    MOTION_CHANGED_PIXELS_THRESHOLD,
-    MOTION_COOLDOWN_SECONDS
-)
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from src.runtime_settings import RuntimeSettings
 
 logger = logging.getLogger(__name__)
 
@@ -18,7 +16,8 @@ class MotionDetector:
     Compares Canny edge maps of consecutive frames.
     """
 
-    def __init__(self):
+    def __init__(self, runtime_settings: 'RuntimeSettings'):
+        self.settings = runtime_settings
         self.last_detection_time = 0
         self.prev_edges = None
         self.initialized = False
@@ -42,8 +41,8 @@ class MotionDetector:
         # Apply Canny edge detection
         edges = cv2.Canny(
             gray, 
-            MOTION_CANNY_THRESHOLD_LOW, 
-            MOTION_CANNY_THRESHOLD_HIGH
+            self.settings.get_motion_canny_low(), 
+            self.settings.get_motion_canny_high()
         )
 
         # If this is the first frame, just store it and return
@@ -54,7 +53,7 @@ class MotionDetector:
 
         # Check cooldown
         current_time = time.time()
-        if (current_time - self.last_detection_time) < MOTION_COOLDOWN_SECONDS:
+        if (current_time - self.last_detection_time) < self.settings.get_motion_cooldown():
             # Still update reference frame during cooldown to avoid stale comparisons
             self.prev_edges = edges
             return False
@@ -74,12 +73,12 @@ class MotionDetector:
         total_pixels = edge_diff.size
         change_percentage = (changed_pixels / total_pixels) * 100
 
-        is_motion = change_percentage > MOTION_CHANGED_PIXELS_THRESHOLD
+        is_motion = change_percentage > self.settings.get_motion_pixel_threshold()
 
         if is_motion:
             logger.info(
                 f"Motion detected! Change: {change_percentage:.2f}% "
-                f"(Threshold: {MOTION_CHANGED_PIXELS_THRESHOLD}%)"
+                f"(Threshold: {self.settings.get_motion_pixel_threshold()}%)"
             )
             self.last_detection_time = current_time
 

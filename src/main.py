@@ -15,6 +15,8 @@ from src.telegram_bot import TelegramBot
 from src.shared_state import SharedState
 from src.stats import StatsGenerator
 from src.image_utils import attach_detection_thumbnails
+from src.detection_stabilizer import DetectionStabilizer
+from src.runtime_settings import RuntimeSettings
 
 # Setup logging
 logging.basicConfig(
@@ -28,21 +30,25 @@ def main():
     """Main detection loop."""
     logger.info("Starting Hostile Object Estimation System")
     
+    # Initialize runtime settings
+    runtime_settings = RuntimeSettings()
+    
     # Initialize camera
     camera = FrameCapture()
-    motion_detector = MotionDetector()
+    motion_detector = MotionDetector(runtime_settings)
     shared_state = SharedState()
     stats_generator = StatsGenerator(shared_state)
+    stabilizer = DetectionStabilizer(runtime_settings)
     
     # Initialize YOLO (this might take a moment to download weights)
     try:
-        yolo_detector = YOLODetector()
+        yolo_detector = YOLODetector(runtime_settings)
     except Exception as e:
         logger.error(f"Critical error initializing YOLO: {e}")
         return
 
     # Phase 5: Start Telegram Bot in background thread
-    bot = TelegramBot(shared_state)
+    bot = TelegramBot(shared_state, runtime_settings)
     if bot.app:
         bot_thread = threading.Thread(target=bot.run, daemon=True)
         bot_thread.start()
@@ -73,16 +79,19 @@ def main():
             if motion_detector.detect(frame):
                 # Phase 3: YOLO Inference (triggered by motion)
                 detections = yolo_detector.detect(frame)
+                stabilized = stabilizer.filter(detections)
+                stable_detections = stabilized.display
+                confirmed_detections = stabilized.confirmed
 
                 # Always refresh the frame snapshot so /scan sees the latest image
-                shared_state.update_frame_with_detections(frame, detections)
+                shared_state.update_frame_with_detections(frame, stable_detections)
 
-                if detections:
-                    attach_detection_thumbnails(frame, detections)
-                    shared_state.add_detections(detections)
+                if confirmed_detections:
+                    attach_detection_thumbnails(frame, confirmed_detections)
+                    shared_state.add_detections(confirmed_detections)
                     
                     # Simple console output for now
-                    for d in detections:
+                    for d in confirmed_detections:
                         logger.info(f"DETECTED: {d.class_name} ({d.confidence:.2f}) ID: {d.track_id}")
             else:
                 # Keep the newest frame available without discarding the last detections
