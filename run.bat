@@ -84,6 +84,8 @@ if %FIRST_RUN%==1 (
 ) else (
     REM Check if requirements.txt is newer than marker file
     REM Use PowerShell for reliable cross-locale timestamp comparison
+    REM Note: Both files are known to exist at this point (marker exists from else check, requirements.txt required)
+    REM Exit code 1 = requirements.txt is newer, 0 = not newer, other = error (fail-safe: skip install)
     powershell -NoProfile -Command "exit ([int]((Get-Item 'requirements.txt').LastWriteTime -gt (Get-Item '.venv\.deps-installed').LastWriteTime))" >nul 2>&1
     if %errorlevel%==1 (
         set NEEDS_INSTALL=1
