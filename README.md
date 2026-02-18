@@ -18,15 +18,18 @@ Motion-triggered YOLO object detection with Telegram bot control. Optimized for 
 **Windows:**
 1. Clone the repository
 2. Double-click `run.bat` or run in terminal:
-```bash
+```cmd
 run.bat
 ```
 
 The script will automatically:
 - Create `.env` from `.env.example` if missing
 - Create virtual environment (`.venv`) if missing
-- Install/update all dependencies
+- Install dependencies on first run (cached for subsequent runs)
+- Detect changes to `requirements.txt` and update automatically
 - Start the system
+
+To force a dependency reinstall on Windows, delete `.venv\.deps-installed` before running `run.bat` again.
 
 **Linux / Ubuntu:**
 ```bash
@@ -45,13 +48,13 @@ The script will automatically:
 
 If you prefer manual setup on Windows:
 
-```bash
+```cmd
 cd hostile-object-estimation
 python -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 copy .env.example .env
-# Edit .env with your Telegram bot token and user ID
+REM Edit .env with your Telegram bot token and user ID
 python src/main.py
 ```
 

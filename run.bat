@@ -12,11 +12,14 @@ REM   4. Starts the system
 REM 
 REM NORMAL STARTUP:
 REM   1. Uses existing .env and .venv
-REM   2. Skips dependency installation (already done)
+REM   2. Skips dependency installation if unchanged (marker file check)
 REM   3. Starts the system immediately
 REM 
 REM To force dependency reinstall: Delete .venv\.deps-installed
 REM ========================================================
+
+REM Change to script directory to handle execution from any location
+cd /d "%~dp0"
 
 echo Starting Hostile Object Estimation System...
 
@@ -32,6 +35,12 @@ if not exist "%ENV_FILE%" (
     )
     echo Config file (.env) not found. Creating from example...
     copy "%EXAMPLE_FILE%" "%ENV_FILE%" >nul
+    if errorlevel 1 (
+        echo Error: Failed to create "%ENV_FILE%" from "%EXAMPLE_FILE%".
+        echo Please check file permissions, available disk space, and that the directory is writable.
+        pause
+        exit /b 1
+    )
     echo Created .env file. Please edit it with your Telegram bot token and user ID.
     echo You can skip Telegram configuration if you don't need bot functionality.
     echo.
@@ -63,27 +72,42 @@ if errorlevel 1 (
 )
 
 REM --- Install/Update Dependencies ---
-REM Install on first run or if .venv\.deps-installed doesn't exist
+REM Install on first run, if marker doesn't exist, or if requirements.txt is newer
+set NEEDS_INSTALL=0
+
 if %FIRST_RUN%==1 (
-    echo Installing dependencies...
-    pip install -r requirements.txt
-    if %errorlevel%==0 (
-        type nul > .venv\.deps-installed
-    ) else (
-        echo Warning: Some dependencies may not have installed correctly.
-        echo.
-    )
+    set NEEDS_INSTALL=1
 ) else if not exist ".venv\.deps-installed" (
-    echo Installing dependencies...
-    pip install -r requirements.txt
-    if %errorlevel%==0 (
-        type nul > .venv\.deps-installed
-    ) else (
-        echo Warning: Some dependencies may not have installed correctly.
-        echo.
-    )
+    set NEEDS_INSTALL=1
 ) else (
-    echo Dependencies already installed. To reinstall, delete .venv\.deps-installed
+    REM Check if requirements.txt is newer than marker file
+    for %%A in (requirements.txt) do set REQ_TIME=%%~tA
+    for %%B in (.venv\.deps-installed) do set MARKER_TIME=%%~tB
+    if "%REQ_TIME%" gtr "%MARKER_TIME%" (
+        set NEEDS_INSTALL=1
+        echo Requirements have changed, updating dependencies...
+    )
+)
+
+if %NEEDS_INSTALL%==1 (
+    if not %FIRST_RUN%==1 (
+        echo Installing dependencies...
+    )
+    pip install -r requirements.txt
+    if errorlevel 1 (
+        echo Error: Failed to install dependencies.
+        echo Please check the error messages above and ensure:
+        echo   - You have internet connectivity
+        echo   - pip is working correctly
+        echo   - All package versions in requirements.txt are available
+        pause
+        exit /b 1
+    )
+    type nul > .venv\.deps-installed
+    echo Dependencies installed successfully.
+    echo.
+) else (
+    echo Dependencies already installed and up to date.
 )
 
 REM --- Run the System ---
