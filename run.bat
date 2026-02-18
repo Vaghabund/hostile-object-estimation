@@ -82,9 +82,10 @@ if %FIRST_RUN%==1 (
     set NEEDS_INSTALL=1
     echo Installing dependencies...
 ) else (
-    REM Check if requirements.txt is newer than marker file using xcopy date comparison
-    echo n | xcopy /d /l /y requirements.txt .venv\.deps-installed >nul 2>&1
-    if not errorlevel 1 (
+    REM Check if requirements.txt is newer than marker file
+    REM Use PowerShell for reliable cross-locale timestamp comparison
+    powershell -NoProfile -Command "exit ([int]((Get-Item 'requirements.txt').LastWriteTime -gt (Get-Item '.venv\.deps-installed').LastWriteTime))" >nul 2>&1
+    if %errorlevel%==1 (
         set NEEDS_INSTALL=1
         echo Requirements have changed, updating dependencies...
     )
