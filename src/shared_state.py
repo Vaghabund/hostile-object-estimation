@@ -46,7 +46,8 @@ class SharedState:
 
     def update_frame(self, frame):
         with self._lock:
-            self.latest_frame = frame.copy() if frame is not None else None
+            # Main loop already has a frame copy from camera, no need to copy again
+            self.latest_frame = frame
             self.latest_frame_time = time.time()
 
     def add_detections(self, new_detections: List[Detection]):
@@ -80,7 +81,8 @@ class SharedState:
     def update_frame_with_detections(self, frame, detections):
         """Update frame and store associated detections."""
         with self._lock:
-            self.latest_frame = frame.copy() if frame is not None else None
+            # Main loop already has a frame copy from camera, no need to copy again
+            self.latest_frame = frame
             self.latest_frame_time = time.time()
             self.latest_detections = detections.copy() if detections else []
 

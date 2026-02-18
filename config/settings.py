@@ -44,7 +44,7 @@ YOLO_ENABLE_TRACKING = True
 # ============================================================================
 # Data Management
 # ============================================================================
-DETECTION_HISTORY_MAXLEN = 1000  # Auto-purge old detections
+DETECTION_HISTORY_MAXLEN = 500  # Auto-purge old detections (sufficient for 24h at 1 detection/min)
 TELEGRAM_IMAGE_QUALITY = 60  # JPEG quality for Telegram (0-100)
 DETECTION_STABILITY_FRAMES = int(os.getenv("DETECTION_STABILITY_FRAMES", "2"))
 DETECTION_STABILITY_MAX_MISSES = int(os.getenv("DETECTION_STABILITY_MAX_MISSES", "2"))
