@@ -114,13 +114,14 @@ class FrameCapture:
                 for index in indices_to_check
             }
             
-            # Check results with timeout
-            for future in future_to_index:
+            # Check results with timeout, prioritizing lower camera indices
+            # Sort by camera index to ensure deterministic selection
+            for future, index in sorted(future_to_index.items(), key=lambda x: x[1]):
                 try:
                     if future.result(timeout=2.0):  # 2 second timeout per probe
-                        return future_to_index[future]
+                        return index
                 except (FuturesTimeout, Exception) as e:
-                    logger.debug(f"Probe timeout/error for camera {future_to_index[future]}: {e}")
+                    logger.debug(f"Probe timeout/error for camera {index}: {e}")
                     continue
         
         return None
@@ -187,7 +188,6 @@ class FrameCapture:
             time.sleep(1)  # Brief pause
             
             logger.info(f"Reopening camera {self.camera_id}...")
-            import sys
             backend = cv2.CAP_DSHOW if sys.platform == 'win32' else cv2.CAP_ANY
             self.cap = cv2.VideoCapture(self.camera_id, backend)
             
