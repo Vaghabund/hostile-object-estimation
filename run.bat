@@ -77,22 +77,20 @@ set NEEDS_INSTALL=0
 
 if %FIRST_RUN%==1 (
     set NEEDS_INSTALL=1
+    echo Installing dependencies...
 ) else if not exist ".venv\.deps-installed" (
     set NEEDS_INSTALL=1
+    echo Installing dependencies...
 ) else (
-    REM Check if requirements.txt is newer than marker file
-    for %%A in (requirements.txt) do set REQ_TIME=%%~tA
-    for %%B in (.venv\.deps-installed) do set MARKER_TIME=%%~tB
-    if "%REQ_TIME%" gtr "%MARKER_TIME%" (
+    REM Check if requirements.txt is newer than marker file using xcopy date comparison
+    echo n | xcopy /d /l /y requirements.txt .venv\.deps-installed >nul 2>&1
+    if not errorlevel 1 (
         set NEEDS_INSTALL=1
         echo Requirements have changed, updating dependencies...
     )
 )
 
 if %NEEDS_INSTALL%==1 (
-    if not %FIRST_RUN%==1 (
-        echo Installing dependencies...
-    )
     pip install -r requirements.txt
     if errorlevel 1 (
         echo Error: Failed to install dependencies.
