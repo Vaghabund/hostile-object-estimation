@@ -19,6 +19,7 @@ if not exist "%ENV_FILE%" (
 )
 
 REM --- Virtual Environment Setup ---
+set FIRST_RUN=0
 if not exist ".venv" (
     echo Virtual environment not found. Creating .venv...
     python -m venv .venv
@@ -29,6 +30,7 @@ if not exist ".venv" (
         exit /b 1
     )
     echo Virtual environment created successfully.
+    set FIRST_RUN=1
     echo.
 )
 
@@ -42,12 +44,27 @@ if errorlevel 1 (
 )
 
 REM --- Install/Update Dependencies ---
-echo Checking dependencies...
-pip install -q -r requirements.txt
-if errorlevel 1 (
-    echo Warning: Some dependencies may not have installed correctly.
-    echo The system will attempt to start anyway.
-    echo.
+REM Install on first run or if .venv\.deps-installed doesn't exist
+if %FIRST_RUN%==1 (
+    echo Installing dependencies...
+    pip install -r requirements.txt
+    if not errorlevel 1 (
+        type nul > .venv\.deps-installed
+    ) else (
+        echo Warning: Some dependencies may not have installed correctly.
+        echo.
+    )
+) else if not exist ".venv\.deps-installed" (
+    echo Installing dependencies...
+    pip install -r requirements.txt
+    if not errorlevel 1 (
+        type nul > .venv\.deps-installed
+    ) else (
+        echo Warning: Some dependencies may not have installed correctly.
+        echo.
+    )
+) else (
+    echo Dependencies already installed. To reinstall, delete .venv\.deps-installed
 )
 
 REM --- Run the System ---
