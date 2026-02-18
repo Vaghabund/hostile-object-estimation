@@ -102,12 +102,11 @@ setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram
 FIRST_RUN=0
 if [ ! -d ".venv" ]; then
     echo "Virtual environment not found. Creating .venv..."
-    python3 -m venv .venv
-    if [ $? -ne 0 ]; then
+    python3 -m venv .venv || {
         echo "Error: Failed to create virtual environment."
         echo "Please ensure Python 3.7+ is installed and available in PATH."
         exit 1
-    fi
+    }
     echo "Virtual environment created successfully."
     FIRST_RUN=1
     echo
@@ -115,11 +114,10 @@ fi
 
 # Activate venv
 echo "Activating virtual environment..."
-source .venv/bin/activate
-if [ $? -ne 0 ]; then
+source .venv/bin/activate || {
     echo "Error: Failed to activate virtual environment."
     exit 1
-fi
+}
 
 # --- Install/Update Dependencies ---
 # Install on first run, if marker doesn't exist, or if requirements.txt is newer
@@ -140,15 +138,14 @@ else
 fi
 
 if [ $NEEDS_INSTALL -eq 1 ]; then
-    pip install -r requirements.txt
-    if [ $? -ne 0 ]; then
+    pip install -r requirements.txt || {
         echo "Error: Failed to install dependencies."
         echo "Please check the error messages above and ensure:"
         echo "  - You have internet connectivity"
         echo "  - pip is working correctly"
         echo "  - All package versions in requirements.txt are available"
         exit 1
-    fi
+    }
     touch .venv/.deps-installed
     echo "Dependencies installed successfully."
     echo
