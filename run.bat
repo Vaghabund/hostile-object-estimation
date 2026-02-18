@@ -1,121 +1,81 @@
 @echo off
-REM ========================================================
-REM Hostile Object Estimation System - Windows Launcher
-REM ========================================================
-REM This script provides one-click installation and startup:
-REM 
-REM FRESH INSTALLATION:
-REM   1. Creates .env from .env.example
-REM   2. Creates Python virtual environment (.venv)
-REM   3. Installs all dependencies
-REM   4. Starts the system
-REM 
-REM NORMAL STARTUP:
-REM   1. Uses existing .env and .venv
-REM   2. Skips dependency installation if unchanged (marker file check)
-REM   3. Starts the system immediately
-REM 
-REM To force dependency reinstall: Delete .venv\.deps-installed
-REM ========================================================
-
-REM Change to script directory to handle execution from any location
+setlocal enabledelayedexpansion
+chcp 65001 >nul 2>&1
 cd /d "%~dp0"
 
-echo Starting Hostile Object Estimation System...
+echo.
+echo ========================================================
+echo Hostile Object Estimation System - Windows Launcher
+echo ========================================================
+echo.
 
-REM --- Configuration Check ---
-set ENV_FILE=.env
-set EXAMPLE_FILE=.env.example
-
-if not exist "%ENV_FILE%" (
-    if not exist "%EXAMPLE_FILE%" (
-        echo Error: %EXAMPLE_FILE% not found. Cannot create configuration.
-        pause
-        exit /b 1
+REM Create .env from .env.example if needed
+if not exist ".env" (
+    if exist ".env.example" (
+        echo Creating .env from .env.example...
+        copy ".env.example" ".env" >nul
+        if !errorlevel! equ 0 (
+            echo Created .env file. Please edit it with your Telegram bot token if needed.
+            echo.
+        ) else (
+            echo Error: Failed to create .env
+            pause
+            exit /b 1
+        )
     )
-    echo Config file (.env) not found. Creating from example...
-    copy "%EXAMPLE_FILE%" "%ENV_FILE%" >nul
-    if errorlevel 1 (
-        echo Error: Failed to create "%ENV_FILE%" from "%EXAMPLE_FILE%".
-        echo Please check file permissions, available disk space, and that the directory is writable.
-        pause
-        exit /b 1
-    )
-    echo Created .env file. Please edit it with your Telegram bot token and user ID.
-    echo You can skip Telegram configuration if you don't need bot functionality.
-    echo.
 )
 
-REM --- Virtual Environment Setup ---
-set FIRST_RUN=0
-if not exist ".venv" (
-    echo Virtual environment not found. Creating .venv...
-    python -m venv .venv
-    if errorlevel 1 (
-        echo Error: Failed to create virtual environment.
-        echo Please ensure Python 3.7+ is installed and available in PATH.
-        pause
-        exit /b 1
-    )
-    echo Virtual environment created successfully.
-    set FIRST_RUN=1
-    echo.
+REM Check if .venv exists
+if exist ".venv" (
+    echo Virtual environment found. Continuing...
+    goto :activate_venv
 )
 
-REM --- Activate Virtual Environment ---
-echo Activating virtual environment...
-call .venv\Scripts\activate
-if errorlevel 1 (
-    echo Error: Failed to activate virtual environment.
+REM Create .venv with Python 3.11 or 3.12
+echo Virtual environment not found. Creating with Python 3.11/3.12...
+echo.
+
+py -3.11 -m venv .venv >nul 2>&1
+if !errorlevel! equ 0 (
+    echo Created venv with Python 3.11
+    goto :install_deps
+)
+
+py -3.12 -m venv .venv >nul 2>&1
+if !errorlevel! equ 0 (
+    echo Created venv with Python 3.12
+    goto :install_deps
+)
+
+echo Error: Failed to create virtual environment.
+echo.
+echo This project requires Python 3.11 or 3.12 installed.
+echo Please download from: https://www.python.org/downloads/
+echo.
+echo When installing, MAKE SURE TO CHECK: "Add Python to PATH"
+pause
+exit /b 1
+
+:install_deps
+echo.
+.venv\Scripts\python.exe -m pip install --upgrade pip >nul 2>&1
+echo Installing dependencies from requirements.txt...
+.venv\Scripts\python.exe -m pip install -r requirements.txt
+if !errorlevel! neq 0 (
+    echo.
+    echo Error: Failed to install dependencies.
+    echo Please check your internet connection and try again.
     pause
     exit /b 1
 )
-
-REM --- Install/Update Dependencies ---
-REM Install on first run, if marker doesn't exist, or if requirements.txt is newer
-set NEEDS_INSTALL=0
-
-if %FIRST_RUN%==1 (
-    set NEEDS_INSTALL=1
-    echo Installing dependencies...
-) else if not exist ".venv\.deps-installed" (
-    set NEEDS_INSTALL=1
-    echo Installing dependencies...
-) else (
-    REM Check if requirements.txt is newer than marker file
-    REM Use PowerShell for reliable cross-locale timestamp comparison
-    REM Note: Both files are known to exist at this point (marker exists from else check, requirements.txt required)
-    REM Exit code 1 = requirements.txt is newer, 0 = not newer, other = error (fail-safe: skip install)
-    powershell -NoProfile -Command "exit ([int]((Get-Item 'requirements.txt').LastWriteTime -gt (Get-Item '.venv\.deps-installed').LastWriteTime))" >nul 2>&1
-    if %errorlevel%==1 (
-        set NEEDS_INSTALL=1
-        echo Requirements have changed, updating dependencies...
-    )
-)
-
-if %NEEDS_INSTALL%==1 (
-    pip install -r requirements.txt
-    if errorlevel 1 (
-        echo Error: Failed to install dependencies.
-        echo Please check the error messages above and ensure:
-        echo   - You have internet connectivity
-        echo   - pip is working correctly
-        echo   - All package versions in requirements.txt are available
-        pause
-        exit /b 1
-    )
-    type nul > .venv\.deps-installed
-    echo Dependencies installed successfully.
-    echo.
-) else (
-    echo Dependencies already installed and up to date.
-)
-
-REM --- Run the System ---
+echo Dependencies installed successfully.
 echo.
-echo Starting the system...
-echo.
-python src/main.py
 
-REM --- Pause on Exit ---
+:activate_venv
+call .venv\Scripts\activate.bat >nul 2>&1
+
+REM Run the application
+echo Starting application...
+echo.
+.venv\Scripts\python.exe src/main.py
 pause
