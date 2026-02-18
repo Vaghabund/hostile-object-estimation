@@ -67,7 +67,7 @@ REM Install on first run or if .venv\.deps-installed doesn't exist
 if %FIRST_RUN%==1 (
     echo Installing dependencies...
     pip install -r requirements.txt
-    if not errorlevel 1 (
+    if %errorlevel%==0 (
         type nul > .venv\.deps-installed
     ) else (
         echo Warning: Some dependencies may not have installed correctly.
@@ -76,7 +76,7 @@ if %FIRST_RUN%==1 (
 ) else if not exist ".venv\.deps-installed" (
     echo Installing dependencies...
     pip install -r requirements.txt
-    if not errorlevel 1 (
+    if %errorlevel%==0 (
         type nul > .venv\.deps-installed
     ) else (
         echo Warning: Some dependencies may not have installed correctly.
