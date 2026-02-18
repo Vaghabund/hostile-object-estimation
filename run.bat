@@ -1,4 +1,23 @@
 @echo off
+REM ========================================================
+REM Hostile Object Estimation System - Windows Launcher
+REM ========================================================
+REM This script provides one-click installation and startup:
+REM 
+REM FRESH INSTALLATION:
+REM   1. Creates .env from .env.example
+REM   2. Creates Python virtual environment (.venv)
+REM   3. Installs all dependencies
+REM   4. Starts the system
+REM 
+REM NORMAL STARTUP:
+REM   1. Uses existing .env and .venv
+REM   2. Skips dependency installation (already done)
+REM   3. Starts the system immediately
+REM 
+REM To force dependency reinstall: Delete .venv\.deps-installed
+REM ========================================================
+
 echo Starting Hostile Object Estimation System...
 
 REM --- Configuration Check ---
