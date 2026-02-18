@@ -11,38 +11,48 @@ Motion-triggered YOLO object detection with Telegram bot control. Optimized for 
 - **In-memory logging** (no disk bloat, auto-purge after 1000 detections)
 - **Thread-safe** (detection + bot run in parallel)
 
-## Quick Start (Windows Development)
+## Quick Start
 
-### 1. Clone & Setup
-
-```bash
-cd c:\Users\Joel\hostile-object-estimation
-python -m venv venv
-venv\Scripts\activate
-pip install -r requirements.txt
-```
-
-### 2. Configure
-
-Copy `.env.example` to `.env` and fill in your values:
-
-```bash
-copy .env.example .env
-# Edit .env with your Telegram bot token and user ID
-```
-
-### 3. Run the System
+### One-Click Installation & Run
 
 **Windows:**
-Double-click `run.bat` or run in terminal:
+1. Clone the repository
+2. Double-click `run.bat` or run in terminal:
 ```bash
 run.bat
 ```
+
+The script will automatically:
+- Create `.env` from `.env.example` if missing
+- Create virtual environment (`.venv`) if missing
+- Install/update all dependencies
+- Start the system
 
 **Linux / Ubuntu:**
 ```bash
 chmod +x deploy.sh
 ./deploy.sh
+```
+
+The script will automatically:
+- Create `.env` from `.env.example` if missing
+- Prompt for Telegram bot credentials (optional)
+- Create virtual environment if missing
+- Install/update all dependencies
+- Start the system
+
+### Manual Setup (Optional)
+
+If you prefer manual setup on Windows:
+
+```bash
+cd hostile-object-estimation
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+copy .env.example .env
+# Edit .env with your Telegram bot token and user ID
+python src/main.py
 ```
 
 ## Project Structure
