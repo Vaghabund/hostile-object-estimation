@@ -56,7 +56,7 @@ def _create_detection_crop(frame, det: Detection, target_size: Tuple[int, int], 
         return None
 
 
-def attach_detection_thumbnails(frame, detections: List[Detection], target_size: Tuple[int, int] = (200, 200), quality: int = 70) -> None:
+def attach_detection_thumbnails(frame, detections: List[Detection], target_size: Tuple[int, int] = (200, 200), quality: int = 50) -> None:
     """Attach serialized thumbnails to detections for later collages."""
     if frame is None or not detections:
         return

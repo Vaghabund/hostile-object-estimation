@@ -1,5 +1,7 @@
 import cv2
 import logging
+import time
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
 from pathlib import Path
 import sys
 
@@ -47,6 +49,8 @@ class FrameCapture:
         self.latest_frame = None
         self.frame_count = 0
         self.is_active = False
+        self._reconnect_attempts = 0
+        self._max_reconnect_attempts = 3
 
     def start(self):
         """Open camera and warm up."""
@@ -100,11 +104,26 @@ class FrameCapture:
 
     @staticmethod
     def _find_external_camera(max_devices=3):
-        """Probe for camera indices greater than zero."""
-        for index in range(1, max_devices):
-            logger.debug(f"Probing camera index {index}...")
-            if FrameCapture._probe_camera(index):
-                return index
+        """Probe for camera indices greater than zero in parallel."""
+        indices_to_check = list(range(1, max_devices))
+        
+        with ThreadPoolExecutor(max_workers=len(indices_to_check)) as executor:
+            # Submit all probe tasks
+            future_to_index = {
+                executor.submit(FrameCapture._probe_camera, index): index 
+                for index in indices_to_check
+            }
+            
+            # Check results with timeout, prioritizing lower camera indices
+            # Sort by camera index to ensure deterministic selection
+            for future, index in sorted(future_to_index.items(), key=lambda x: x[1]):
+                try:
+                    if future.result(timeout=2.0):  # 2 second timeout per probe
+                        return index
+                except (FuturesTimeout, Exception) as e:
+                    logger.debug(f"Probe timeout/error for camera {index}: {e}")
+                    continue
+        
         return None
 
     @staticmethod
@@ -137,8 +156,18 @@ class FrameCapture:
             ret, frame = self.cap.read()
             if not ret:
                 logger.warning("Failed to read frame from camera")
+                
+                # Attempt reconnection
+                if self._reconnect_attempts < self._max_reconnect_attempts:
+                    logger.info(f"Attempting camera reconnection ({self._reconnect_attempts + 1}/{self._max_reconnect_attempts})")
+                    if self._reconnect():
+                        return None, None  # Return None this frame, next frame should work
+                
                 return None, None
 
+            # Reset reconnect counter on successful read
+            self._reconnect_attempts = 0
+            
             self.latest_frame = frame
             self.frame_count += 1
             return frame, self.frame_count
@@ -146,6 +175,40 @@ class FrameCapture:
         except Exception as e:
             logger.error(f"Error capturing frame: {e}")
             return None, None
+
+    def _reconnect(self):
+        """Attempt to reconnect to the camera."""
+        self._reconnect_attempts += 1
+        
+        try:
+            logger.info("Releasing current camera connection...")
+            if self.cap is not None:
+                self.cap.release()
+            
+            time.sleep(1)  # Brief pause
+            
+            logger.info(f"Reopening camera {self.camera_id}...")
+            backend = cv2.CAP_DSHOW if sys.platform == 'win32' else cv2.CAP_ANY
+            self.cap = cv2.VideoCapture(self.camera_id, backend)
+            
+            if not self.cap.isOpened():
+                raise RuntimeError(f"Failed to reopen camera {self.camera_id}")
+            
+            # Re-apply settings
+            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
+            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
+            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+            
+            logger.info("Camera reconnected successfully")
+            self.is_active = True
+            return True
+            
+        except Exception as e:
+            logger.error(f"Camera reconnection failed: {e}")
+            if self._reconnect_attempts >= self._max_reconnect_attempts:
+                logger.critical("Max reconnection attempts reached. Camera unavailable.")
+                self.is_active = False
+            return False
 
     def get_latest_frame(self):
         """Get the most recent frame without capturing a new one."""

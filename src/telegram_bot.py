@@ -3,6 +3,7 @@ import asyncio
 import io
 import time
 import cv2
+from collections import defaultdict
 from PIL import Image
 from telegram import Update
 from telegram.error import NetworkError
@@ -48,6 +49,8 @@ class TelegramBot:
         self.settings = runtime_settings
         self.stats = StatsGenerator(shared_state)
         self._last_network_error_log = 0.0
+        self._command_timestamps = defaultdict(float)
+        self._rate_limit_seconds = 2.0
         
         if not TELEGRAM_BOT_TOKEN:
             logger.warning("Telegram Bot Token is missing! Bot will not start.")
@@ -107,6 +110,22 @@ class TelegramBot:
         logger.debug(f"Authorized request from user '{username}' (ID: {user_id})")
         return True
 
+    def _check_rate_limit(self, update: Update, command: str) -> bool:
+        """Check if command is rate-limited."""
+        if not update.effective_user:
+            return True
+        
+        user_id = update.effective_user.id
+        key = f"{user_id}:{command}"
+        now = time.time()
+        last_time = self._command_timestamps[key]
+        
+        if now - last_time < self._rate_limit_seconds:
+            return False
+        
+        self._command_timestamps[key] = now
+        return True
+
     async def cmd_start(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
         logger.info("Command /start received")
@@ -139,12 +158,22 @@ class TelegramBot:
 
     async def cmd_status(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        
+        if not self._check_rate_limit(update, "status"):
+            await update.message.reply_text("⏳ Please wait 2 seconds between status requests")
+            return
+        
         logger.info("Command /status received")
         status_text = self.stats.get_status_short()
         await update.message.reply_text(status_text, parse_mode="Markdown")
 
     async def cmd_summary(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
+        
+        if not self._check_rate_limit(update, "summary"):
+            await update.message.reply_text("⏳ Please wait 2 seconds between summary requests")
+            return
+        
         logger.info("Command /summary received")
         
         # Send text summary first
@@ -200,6 +229,11 @@ class TelegramBot:
     async def cmd_scan(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Send a snapshot of the current frame with bounding boxes."""
         if not self._check_auth(update) or not update.message: return
+        
+        if not self._check_rate_limit(update, "scan"):
+            await update.message.reply_text("⏳ Please wait 2 seconds between scans")
+            return
+        
         logger.info("Command /scan received")
         
         # Get frame and detections
@@ -248,11 +282,12 @@ class TelegramBot:
 
         logger.info("Telegram Bot polling started...")
         
-        # Retry loop for network issues
-        while True:
+        max_retries = 20
+        base_delay = 5
+        
+        for attempt in range(max_retries):
             loop = None
             try:
-                # Create a new event loop for each attempt to avoid "Event loop is closed" errors
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
 
@@ -260,26 +295,30 @@ class TelegramBot:
                 self.app.run_polling(
                     poll_interval=2.0,
                     timeout=30,
-                    bootstrap_retries=-1,  # Infinite retries on startup
-                    close_loop=False       # Don't close the loop automatically so we can manage it
+                    bootstrap_retries=-1,
+                    close_loop=False
                 )
                 
-                # If we get here, it exited cleanly
                 if not loop.is_closed():
                     loop.close()
                 break
 
             except Exception as e:
-                logger.error(f"Telegram connection failed: {e}. Retrying in 5s...")
-                logger.debug(f"Exception details: {type(e).__name__}: {str(e)}")
+                delay = min(base_delay * (2 ** attempt), 300)  # Cap at 5 min
+                logger.error(f"Telegram attempt {attempt+1}/{max_retries} failed: {e}")
+                
                 try:
-                    # Attempt to clean up the loop if it's still open
                     if loop is not None and not loop.is_closed():
                         loop.close()
                 except Exception as cleanup_error:
                     logger.error(f"Error cleaning up loop: {cleanup_error}")
                 
-                time.sleep(5)
+                if attempt < max_retries - 1:
+                    logger.info(f"Retrying in {delay}s...")
+                    time.sleep(delay)
+                else:
+                    logger.critical("Max retries exceeded, bot disabled")
+                    return
 
     async def _reply_photo_with_retry(self, update: Update, bio: io.BytesIO, caption: str, retries: int = 3) -> bool:
         """Attempt to send a photo and retry on transient network errors."""

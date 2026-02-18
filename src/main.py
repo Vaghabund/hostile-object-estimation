@@ -6,7 +6,7 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.settings import LOG_LEVEL
+from config.settings import LOG_LEVEL, CAMERA_FPS
 from src.camera import FrameCapture
 from src.motion_detector import MotionDetector
 from src.yolo_detector import YOLODetector
@@ -66,6 +66,7 @@ def main():
         last_stats_log = 0
 
         while True:
+            frame_start_time = time.time()
             frame, frame_id = camera.get_frame()
             
             if frame is None:
@@ -113,8 +114,10 @@ def main():
                 logger.info(f"STATUS UPDATE:\n{summary.replace('*', '')}")
                 last_stats_log = current_time
 
-            # Small delay to prevent CPU spinning
-            time.sleep(0.01)
+            # Adaptive sleep based on camera FPS
+            processing_time = time.time() - frame_start_time
+            target_sleep = max(0.001, (1.0 / CAMERA_FPS) - processing_time)
+            time.sleep(target_sleep)
 
     except KeyboardInterrupt:
         logger.info("Received interrupt signal, shutting down...")

@@ -46,6 +46,8 @@ class SharedState:
 
     def update_frame(self, frame):
         with self._lock:
+            # Copy frame to ensure thread safety across different OpenCV backends
+            # (DSHOW on Windows, V4L2 on Linux, AVFoundation on macOS may behave differently)
             self.latest_frame = frame.copy() if frame is not None else None
             self.latest_frame_time = time.time()
 
@@ -80,6 +82,8 @@ class SharedState:
     def update_frame_with_detections(self, frame, detections):
         """Update frame and store associated detections."""
         with self._lock:
+            # Copy frame to ensure thread safety across different OpenCV backends
+            # (DSHOW on Windows, V4L2 on Linux, AVFoundation on macOS may behave differently)
             self.latest_frame = frame.copy() if frame is not None else None
             self.latest_frame_time = time.time()
             self.latest_detections = detections.copy() if detections else []
