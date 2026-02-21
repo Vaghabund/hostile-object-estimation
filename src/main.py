@@ -107,9 +107,9 @@ def main():
                 fps = frame_count / elapsed
                 logger.debug(f"FPS: {fps:.1f} | Frames: {frame_count}")
 
-            # Log stats summary every 60 seconds to console (simulating bot request)
+            # Log stats summary every hour to console
             current_time = time.time()
-            if current_time - last_stats_log > 60:
+            if current_time - last_stats_log > 3600:
                 summary = stats_generator.get_status_short()
                 logger.info(f"STATUS UPDATE:\n{summary.replace('*', '')}")
                 last_stats_log = current_time
