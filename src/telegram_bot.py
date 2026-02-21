@@ -5,6 +5,7 @@ import time
 import cv2
 import threading
 from collections import defaultdict
+from pathlib import Path
 from PIL import Image
 from telegram import Update
 from telegram.error import NetworkError
@@ -438,6 +439,39 @@ class TelegramBot:
             summary + help_text,
             parse_mode="Markdown"
         )
+    
+    def _save_setting_to_env(self, key: str, value):
+        """Save a setting to .env file for persistence across restarts."""
+        try:
+            env_file = Path.cwd() / ".env"
+            if not env_file.exists():
+                logger.warning(f".env file not found at {env_file}")
+                return False
+            
+            # Read current .env file
+            lines = []
+            found = False
+            with open(env_file, 'r') as f:
+                for line in f:
+                    if line.startswith(f"{key}="):
+                        lines.append(f"{key}={value}\n")
+                        found = True
+                    else:
+                        lines.append(line)
+            
+            # If setting not found, append it
+            if not found:
+                lines.append(f"{key}={value}\n")
+            
+            # Write back to file
+            with open(env_file, 'w') as f:
+                f.writelines(lines)
+            
+            logger.info(f"Saved setting to .env: {key}={value}")
+            return True
+        except Exception as e:
+            logger.error(f"Failed to save setting to .env: {e}")
+            return False
 
     async def cmd_set(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Set a runtime parameter."""
@@ -466,37 +500,44 @@ class TelegramBot:
             if param == "motion_canny_low":
                 value = int(value_str)
                 self.settings.set_motion_canny_low(value)
-                await update.message.reply_text(f"✅ Motion Canny Low set to {value}")
+                self._save_setting_to_env("MOTION_CANNY_LOW", str(value))
+                await update.message.reply_text(f"✅ Motion Canny Low set to {value}\n(persistent after restart)")
                 
             elif param == "motion_canny_high":
                 value = int(value_str)
                 self.settings.set_motion_canny_high(value)
-                await update.message.reply_text(f"✅ Motion Canny High set to {value}")
+                self._save_setting_to_env("MOTION_CANNY_HIGH", str(value))
+                await update.message.reply_text(f"✅ Motion Canny High set to {value}\n(persistent after restart)")
                 
             elif param == "motion_threshold":
                 value = float(value_str)
                 self.settings.set_motion_pixel_threshold(value)
-                await update.message.reply_text(f"✅ Motion Pixel Threshold set to {value}%")
+                self._save_setting_to_env("MOTION_PIXEL_THRESHOLD", str(value))
+                await update.message.reply_text(f"✅ Motion Pixel Threshold set to {value}%\n(persistent after restart)")
                 
             elif param == "motion_cooldown":
                 value = float(value_str)
                 self.settings.set_motion_cooldown(value)
-                await update.message.reply_text(f"✅ Motion Cooldown set to {value}s")
+                self._save_setting_to_env("MOTION_COOLDOWN", str(value))
+                await update.message.reply_text(f"✅ Motion Cooldown set to {value}s\n(persistent after restart)")
                 
             elif param == "yolo_confidence":
                 value = float(value_str)
                 self.settings.set_yolo_confidence(value)
-                await update.message.reply_text(f"✅ YOLO Confidence set to {value:.2f}")
+                self._save_setting_to_env("YOLO_CONFIDENCE", str(value))
+                await update.message.reply_text(f"✅ YOLO Confidence set to {value:.2f}\n(persistent after restart)")
                 
             elif param == "stability_frames":
                 value = int(value_str)
                 self.settings.set_stability_frames(value)
-                await update.message.reply_text(f"✅ Stability Frames set to {value}")
+                self._save_setting_to_env("DETECTION_STABILITY_FRAMES", str(value))
+                await update.message.reply_text(f"✅ Stability Frames set to {value}\n(persistent after restart)")
                 
             elif param == "stability_misses":
                 value = int(value_str)
                 self.settings.set_stability_max_misses(value)
-                await update.message.reply_text(f"✅ Stability Max Misses set to {value}")
+                self._save_setting_to_env("DETECTION_STABILITY_MAX_MISSES", str(value))
+                await update.message.reply_text(f"✅ Stability Max Misses set to {value}\n(persistent after restart)")
                 
             else:
                 await update.message.reply_text(f"❌ Unknown parameter: {param}")
