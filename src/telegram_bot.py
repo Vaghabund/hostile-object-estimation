@@ -7,6 +7,7 @@ import threading
 from collections import defaultdict
 from pathlib import Path
 from PIL import Image
+import requests
 from telegram import Update
 from telegram.error import NetworkError
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
@@ -317,24 +318,21 @@ class TelegramBot:
             logger.error(f"Failed to prepare detection alert: {e}")
     
     def _send_alert_sync(self, bio: io.BytesIO, caption: str):
-        """Send photo alert in a separate thread with its own event loop."""
+        """Send photo alert in a separate thread using requests (blocking)."""
         try:
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            loop.run_until_complete(self._send_photo_alert(bio, caption))
-            loop.close()
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendPhoto"
+            files = {"photo": ("frame.jpg", bio, "image/jpeg")}
+            data = {
+                "chat_id": int(AUTHORIZED_USER_ID),
+                "caption": caption,
+                "parse_mode": "HTML"
+            }
+            
+            response = requests.post(url, files=files, data=data, timeout=10)
+            response.raise_for_status()
             logger.info("Detection alert sent successfully")
-        except Exception as e:
-            logger.error(f"Error sending photo alert: {e}")
-    
-    async def _send_photo_alert(self, bio: io.BytesIO, caption: str):
-        """Send photo alert to authorized user (async helper)."""
-        try:
-            await self._bot.send_photo(
-                chat_id=int(AUTHORIZED_USER_ID),
-                photo=bio,
-                caption=caption
-            )
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to send photo alert: {e}")
         except Exception as e:
             logger.error(f"Error sending photo alert: {e}")
 
