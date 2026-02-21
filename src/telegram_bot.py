@@ -51,6 +51,7 @@ class TelegramBot:
         self._last_network_error_log = 0.0
         self._command_timestamps = defaultdict(float)
         self._rate_limit_seconds = 2.0
+        self._bot = None  # Will be set after app is created
         
         if not TELEGRAM_BOT_TOKEN:
             logger.warning("Telegram Bot Token is missing! Bot will not start.")
@@ -63,6 +64,7 @@ class TelegramBot:
             return
 
         self.app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
+        self._bot = self.app.bot  # Store bot reference for sending notifications
         self._register_handlers()
         logger.info("Telegram Bot initialized successfully.")
         logger.info(f"Authorized user ID: {AUTHORIZED_USER_ID}")
@@ -274,6 +276,65 @@ class TelegramBot:
             return
         
         # Skip sending individual detection crops to avoid duplicate images
+
+    def send_detection_alert(self, frame, detections):
+        """
+        Send an alert with detected objects to the authorized user.
+        This is called from the main thread when motion + detection occurs.
+        Thread-safe method.
+        """
+        if not self._bot or not AUTHORIZED_USER_ID:
+            return
+        
+        try:
+            # Draw bounding boxes on frame
+            annotated_frame = draw_detections_on_frame(frame, detections)
+            
+            # Create caption with detection info
+            detection_labels = [f"{d.class_name} ({d.confidence:.0%})" for d in detections]
+            caption = f"🚨 Detection Alert!\n\n" + "\n".join(f"• {label}" for label in detection_labels)
+            
+            # Convert to RGB and prepare image
+            frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(frame_rgb)
+            
+            bio = io.BytesIO()
+            image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
+            bio.seek(0)
+            
+            # Send photo in a new thread to avoid blocking main loop
+            alert_thread = threading.Thread(
+                target=self._send_alert_sync,
+                args=(bio, caption),
+                daemon=True
+            )
+            alert_thread.start()
+            logger.debug(f"Detection alert queued: {', '.join(detection_labels)}")
+            
+        except Exception as e:
+            logger.error(f"Failed to prepare detection alert: {e}")
+    
+    def _send_alert_sync(self, bio: io.BytesIO, caption: str):
+        """Send photo alert in a separate thread with its own event loop."""
+        try:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            loop.run_until_complete(self._send_photo_alert(bio, caption))
+            loop.close()
+            logger.info("Detection alert sent successfully")
+        except Exception as e:
+            logger.error(f"Error sending photo alert: {e}")
+    
+    async def _send_photo_alert(self, bio: io.BytesIO, caption: str):
+        """Send photo alert to authorized user (async helper)."""
+        try:
+            await self._bot.send_photo(
+                chat_id=int(AUTHORIZED_USER_ID),
+                photo=bio,
+                caption=caption
+            )
+        except Exception as e:
+            logger.error(f"Error sending photo alert: {e}")
 
     def run(self):
         """Run the bot (blocking). Should be run in a separate thread."""

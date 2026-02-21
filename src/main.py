@@ -91,9 +91,13 @@ def main():
                     attach_detection_thumbnails(frame, confirmed_detections)
                     shared_state.add_detections(confirmed_detections)
                     
-                    # Simple console output for now
+                    # Log to console
                     for d in confirmed_detections:
                         logger.info(f"DETECTED: {d.class_name} ({d.confidence:.2f}) ID: {d.track_id}")
+                    
+                    # Send Telegram alert with detection image
+                    if bot.app:
+                        bot.send_detection_alert(frame, confirmed_detections)
             else:
                 # Keep the newest frame available without discarding the last detections
                 shared_state.update_frame(frame)
