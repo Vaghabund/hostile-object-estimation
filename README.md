@@ -225,18 +225,42 @@ sudo apt install -y python3 python3-pip python3-venv
 sudo apt install -y python3-venv
 ```
 
+**Camera permission denied / Failed to open camera**
+This is a very common issue. The user needs to be in the `video` group:
+```bash
+# Add user to video group
+sudo usermod -a -G video $USER
+
+# Verify the group was added
+groups $USER
+
+# IMPORTANT: Log out and log back in for changes to take effect
+exit
+# Then reconnect via SSH
+ssh user@hostname
+
+# Verify the group is now active in your session
+groups
+```
+
+You should see `video` in the list. Then run the application again.
+
+**Check which video devices are available:**
+```bash
+# List video devices
+ls -la /dev/video*
+
+# Install v4l-utils for more details (optional)
+sudo apt install -y v4l-utils
+v4l2-ctl --list-devices
+```
+
 **OpenCV errors or slow performance** (optional optimization)
 ```bash
 # Install system OpenCV libraries for better performance
 sudo apt install -y python3-opencv libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
 ```
 Note: The script installs opencv-python via pip, so this is optional.
-
-**Camera permission denied**
-```bash
-sudo usermod -a -G video $USER
-# Log out and log back in
-```
 
 **"libgl1-mesa-glx has no installation candidate"** (newer Ubuntu)
 ```bash

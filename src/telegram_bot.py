@@ -292,11 +292,14 @@ class TelegramBot:
                 asyncio.set_event_loop(loop)
 
                 logger.info("Starting polling connection to Telegram...")
+                # Disable signal handlers since we're running in a background thread
+                # (signal handlers only work in the main thread)
                 self.app.run_polling(
                     poll_interval=2.0,
                     timeout=30,
                     bootstrap_retries=-1,
-                    close_loop=False
+                    close_loop=False,
+                    stop_signals=None  # Disable signal handlers for thread safety
                 )
                 
                 if not loop.is_closed():
