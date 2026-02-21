@@ -3,6 +3,7 @@ import asyncio
 import io
 import time
 import cv2
+import threading
 from collections import defaultdict
 from PIL import Image
 from telegram import Update
