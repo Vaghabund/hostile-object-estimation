@@ -80,6 +80,7 @@ echo
 # --- Configuration Check ---
 ENV_FILE=".env"
 EXAMPLE_FILE=".env.example"
+ENV_IS_NEW=0
 
 if [ ! -f "$ENV_FILE" ]; then
     if [ ! -f "$EXAMPLE_FILE" ]; then
@@ -93,6 +94,7 @@ if [ ! -f "$ENV_FILE" ]; then
         echo "Please check file permissions, available disk space, and that the directory is writable."
         exit 1
     fi
+    ENV_IS_NEW=1
 fi
 
 # Function to check and prompt for variables
@@ -147,8 +149,15 @@ setup_variable() {
     fi
 }
 
-setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here" "secret" || exit 1
-setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here" || exit 1
+# Only prompt for Telegram settings on first run
+if [ $ENV_IS_NEW -eq 1 ]; then
+    echo
+    echo "Configuring Telegram bot (optional - you can set this later in .env)..."
+    setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here" "secret" || exit 1
+    setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here" || exit 1
+else
+    echo "✅ Using existing .env configuration. (Edit .env to change settings)"
+fi
 
 # --- Python Environment Check ---
 echo
