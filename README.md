@@ -233,17 +233,20 @@ sudo usermod -a -G video $USER
 
 # Verify the group was added
 groups $USER
+```
 
-# IMPORTANT: Log out and log back in for changes to take effect
-exit
-# Then reconnect via SSH
-ssh user@hostname
+You should see `video` in the list.
 
-# Verify the group is now active in your session
+**IMPORTANT: Log out and log back in** for changes to take effect:
+- If using the system directly: Log out and log back in to your desktop session
+- If using SSH (remote connection): Type `exit`, then reconnect with `ssh user@hostname`
+
+After logging back in, verify the group is active:
+```bash
 groups
 ```
 
-You should see `video` in the list. Then run the application again.
+You should now see `video` in your active groups. Then run the application again.
 
 **Check which video devices are available:**
 ```bash
