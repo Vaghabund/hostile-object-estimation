@@ -1,6 +1,7 @@
 import logging
 import asyncio
 import io
+import os
 import time
 import cv2
 import threading
@@ -472,6 +473,8 @@ class TelegramBot:
             try:
                 with open(tmp_file, 'w') as f:
                     f.writelines(lines)
+                    f.flush()
+                    os.fsync(f.fileno())
                 tmp_file.replace(env_file)
             except Exception:
                 tmp_file.unlink(missing_ok=True)
