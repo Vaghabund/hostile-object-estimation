@@ -316,12 +316,15 @@ hostile-object-estimation/
 │   └── settings.py          # Central configuration
 ├── src/
 │   ├── camera.py            # Frame capture
+│   ├── detection_stabilizer.py  # Multi-frame detection filtering
+│   ├── image_utils.py       # Bounding-box drawing & collage helpers
 │   ├── main.py              # Main loop
 │   ├── motion_detector.py   # Motion logic
-│   ├── yolo_detector.py     # YOLO + Tracking
+│   ├── runtime_settings.py  # Live-adjustable settings (via Telegram)
 │   ├── shared_state.py      # Thread-safe data
 │   ├── stats.py             # Statistics generator
-│   └── telegram_bot.py      # Telegram interface
+│   ├── telegram_bot.py      # Telegram interface
+│   └── yolo_detector.py     # YOLO + Tracking
 ├── run.bat                  # Windows launcher
 ├── deploy.sh                # Linux launcher
 ├── requirements.txt         # Dependencies
@@ -331,11 +334,11 @@ hostile-object-estimation/
 ## Development Phases
 
 1. **Phase 1 (Complete):** Project setup + frame capture ✅
-2. **Phase 2 (Next):** Motion detection (edge detection + contours)
-3. **Phase 3:** YOLO inference + object tracking
-4. **Phase 4:** In-memory logging & statistics
-5. **Phase 5:** Telegram bot (commands, snapshots, summaries)
-6. **Phase 6:** Testing & deployment prep
+2. **Phase 2 (Complete):** Motion detection (edge detection + contours) ✅
+3. **Phase 3 (Complete):** YOLO inference + object tracking ✅
+4. **Phase 4 (Complete):** In-memory logging & statistics ✅
+5. **Phase 5 (Complete):** Telegram bot (commands, snapshots, summaries) ✅
+6. **Phase 6 (Complete):** Testing & deployment prep ✅
 
 ## Configuration
 

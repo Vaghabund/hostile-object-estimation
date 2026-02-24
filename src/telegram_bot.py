@@ -5,7 +5,6 @@ import time
 import cv2
 import threading
 from collections import defaultdict
-from pathlib import Path
 from PIL import Image
 import requests
 from telegram import Update
@@ -14,7 +13,8 @@ from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from config.settings import (
     TELEGRAM_BOT_TOKEN, 
     AUTHORIZED_USER_ID,
-    TELEGRAM_IMAGE_QUALITY
+    TELEGRAM_IMAGE_QUALITY,
+    ENV_FILE,
 )
 from src.shared_state import SharedState
 from src.stats import StatsGenerator
@@ -66,11 +66,17 @@ class TelegramBot:
             self.app = None
             return
 
+        try:
+            int(AUTHORIZED_USER_ID)
+        except ValueError:
+            logger.warning("AUTHORIZED_USER_ID is not a valid integer! Bot will not start.")
+            self.app = None
+            return
+
         self.app = ApplicationBuilder().token(TELEGRAM_BOT_TOKEN).build()
         self._bot = self.app.bot  # Store bot reference for sending notifications
         self._register_handlers()
         logger.info("Telegram Bot initialized successfully.")
-        logger.info(f"Authorized user ID: {AUTHORIZED_USER_ID}")
 
     def _register_handlers(self):
         """Register command handlers."""
@@ -441,7 +447,7 @@ class TelegramBot:
     def _save_setting_to_env(self, key: str, value):
         """Save a setting to .env file for persistence across restarts."""
         try:
-            env_file = Path.cwd() / ".env"
+            env_file = ENV_FILE
             if not env_file.exists():
                 logger.warning(f".env file not found at {env_file}")
                 return False
@@ -461,9 +467,15 @@ class TelegramBot:
             if not found:
                 lines.append(f"{key}={value}\n")
             
-            # Write back to file
-            with open(env_file, 'w') as f:
-                f.writelines(lines)
+            # Write atomically: write to a temp file next to .env, then rename
+            tmp_file = env_file.parent / (env_file.name + ".tmp")
+            try:
+                with open(tmp_file, 'w') as f:
+                    f.writelines(lines)
+                tmp_file.replace(env_file)
+            except Exception:
+                tmp_file.unlink(missing_ok=True)
+                raise
             
             logger.info(f"Saved setting to .env: {key}={value}")
             return True

@@ -165,9 +165,6 @@ def main():
                 shared_state.update_frame(frame)
 
             # Debug: Show FPS every 30 frames
-            # TODO: Phase 4 - Logging will go here
-
-            # Debug: Show FPS every 30 frames
             if frame_count % 30 == 0:
                 elapsed = time.time() - start_time
                 fps = frame_count / elapsed
