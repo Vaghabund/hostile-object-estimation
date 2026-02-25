@@ -23,10 +23,15 @@ class YOLODetector:
         try:
             # Fix for PyTorch 2.6+ weights_only=True default
             import torch
-            # Monkey patch torch.load to default weights_only=False temporarily
-            # This is safer/easier than listing all safe globals which change between versions
+            # Monkey patch torch.load to default weights_only=False temporarily.
+            # weights_only=True rejects the non-tensor data stored in ultralytics .pt files.
+            # We pop any caller-supplied 'weights_only' from kwargs to avoid a TypeError
+            # when both the positional override and a kwarg are present simultaneously.
             original_load = torch.load
-            torch.load = lambda f, map_location=None, pickle_module=None, **kwargs: original_load(f, map_location, pickle_module, weights_only=False, **kwargs)
+            def _patched_load(f, map_location=None, pickle_module=None, **kwargs):
+                kwargs.pop('weights_only', None)
+                return original_load(f, map_location=map_location, pickle_module=pickle_module, weights_only=False, **kwargs)
+            torch.load = _patched_load
             
             # Auto-downloads model on first run
             self.model = YOLO(YOLO_MODEL + ".pt")
