@@ -2,8 +2,8 @@ from collections import deque
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
-from config.settings import DETECTION_HISTORY_MAXLEN
+from typing import List, Optional, Dict, Tuple
+from config.settings import DETECTION_HISTORY_MAXLEN, FRAME_BUFFER_MAX_FRAMES_PER_TRACK
 
 @dataclass
 class Detection:
@@ -38,6 +38,11 @@ class SharedState:
         
         # Detection history (auto-purging)
         self.detections = deque(maxlen=DETECTION_HISTORY_MAXLEN)
+        
+        # Frame buffering per track_id for best-frame selection
+        # track_frames[track_id] = deque([(frame, detection, timestamp), ...], maxlen=FRAME_BUFFER_MAX_FRAMES_PER_TRACK)
+        self.track_frames: Dict[int, deque] = {}
+        self.track_last_confirmed: Dict[int, float] = {}  # track_id -> last confirmation timestamp
         
         # Stats
         self.class_counts = {}
@@ -96,3 +101,55 @@ class SharedState:
                 "class_counts": self.class_counts.copy(),
                 "last_detection": self.last_detection_time
             }
+
+    def buffer_frame(self, frame: Optional[object], detection: Detection) -> None:
+        """
+        Buffer a frame with its detection for best-frame selection.
+        
+        Used to collect frames from a continuous detection sequence.
+        Only buffers if detection has a track_id.
+        
+        Args:
+            frame: numpy array (or None)
+            detection: Detection object with track_id
+        """
+        if detection.track_id is None or frame is None:
+            return
+        
+        with self._lock:
+            # Initialize track buffer if needed
+            if detection.track_id not in self.track_frames:
+                self.track_frames[detection.track_id] = deque(
+                    maxlen=FRAME_BUFFER_MAX_FRAMES_PER_TRACK
+                )
+            
+            # Store (frame copy, detection, timestamp)
+            self.track_frames[detection.track_id].append(
+                (frame.copy() if hasattr(frame, 'copy') else frame, detection, time.time())
+            )
+
+    def get_track_frames(self, track_id: int) -> List[Tuple[object, Detection, float]]:
+        """
+        Retrieve all buffered frames for a track_id.
+        
+        Args:
+            track_id: The track identifier
+            
+        Returns:
+            List of (frame, detection, timestamp) tuples or empty list
+        """
+        with self._lock:
+            if track_id not in self.track_frames:
+                return []
+            return list(self.track_frames[track_id])
+
+    def clear_track_frames(self, track_id: int) -> None:
+        """
+        Clear buffered frames for a track_id (called when track ends).
+        
+        Args:
+            track_id: The track identifier to clear
+        """
+        with self._lock:
+            self.track_frames.pop(track_id, None)
+            self.track_last_confirmed.pop(track_id, None)

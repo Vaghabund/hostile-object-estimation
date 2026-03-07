@@ -1,0 +1,17 @@
+services:
+  hostile-object-estimation:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: hostile-object-estimation
+    restart: unless-stopped
+    env_file:
+      - .env
+
+    # Linux camera passthrough. If your host camera is /dev/video2,
+    # map it to /dev/video0 in the container and keep CAMERA_ID=0.
+    devices:
+      - /dev/video0:/dev/video0
+
+    # Outbound internet is required for Telegram polling.
+    network_mode: bridge

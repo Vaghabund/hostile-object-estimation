@@ -5,6 +5,7 @@ import os
 import time
 import cv2
 import threading
+import numpy as np
 from collections import defaultdict
 from PIL import Image
 import requests
@@ -16,6 +17,13 @@ from config.settings import (
     AUTHORIZED_USER_ID,
     TELEGRAM_IMAGE_QUALITY,
     ENV_FILE,
+    FRAME_SELECTION_ENABLED,
+    FRAME_SELECTION_MODE,
+    FACE_DETECTOR_TYPE,
+    FACE_DETECTOR_MIN_SIZE,
+    FRAME_SELECTION_FACE_WEIGHT,
+    FRAME_SELECTION_SHARPNESS_WEIGHT,
+    FRAME_SELECTION_CONFIDENCE_WEIGHT
 )
 from src.shared_state import SharedState
 from src.stats import StatsGenerator
@@ -24,6 +32,7 @@ from src.image_utils import (
     create_detection_collage_from_history
 )
 from src.runtime_settings import RuntimeSettings
+from src.frame_quality_scorer import FrameQualityScorer
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +65,15 @@ class TelegramBot:
         self._command_timestamps = defaultdict(float)
         self._rate_limit_seconds = 2.0
         self._bot = None  # Will be set after app is created
+        
+        # Initialize frame quality scorer for best-frame selection
+        self.frame_scorer = FrameQualityScorer(
+            face_detector_type=FACE_DETECTOR_TYPE,
+            min_face_size=FACE_DETECTOR_MIN_SIZE,
+            face_weight=FRAME_SELECTION_FACE_WEIGHT,
+            sharpness_weight=FRAME_SELECTION_SHARPNESS_WEIGHT,
+            confidence_weight=FRAME_SELECTION_CONFIDENCE_WEIGHT
+        )
         
         if not TELEGRAM_BOT_TOKEN:
             logger.warning("Telegram Bot Token is missing! Bot will not start.")
@@ -203,7 +221,82 @@ class TelegramBot:
             detections_24h = [d for d in recent_detections if d.timestamp >= cutoff_time]
             
             if detections_24h:
-                logger.info(f"Creating visual summary collage for {len(detections_24h)} detections from last 24h...")
+                logger.info(f"Creating visual summary for {len(detections_24h)} detections from last 24h...")
+                
+                # Check if best-frame selection is enabled for summary
+                use_best_frames = FRAME_SELECTION_ENABLED and FRAME_SELECTION_MODE.get("summary", False)
+                
+                if use_best_frames:
+                    # Try to create collage using best frames per track
+                    logger.info("Using best-frame selection for summary collage")
+                    # Group detections by track_id
+                    tracks = {}
+                    for d in detections_24h:
+                        track_id = d.track_id if d.track_id is not None else f"static_{d.class_name}_{d.bbox[0]}"
+                        if track_id not in tracks:
+                            tracks[track_id] = []
+                        tracks[track_id].append(d)
+                    
+                    # For each track, try to get best frame (if available in buffer)
+                    # Otherwise fall back to thumbnails
+                    best_frames = []
+                    for track_id, track_dets in tracks.items():
+                        if isinstance(track_id, int):
+                            # Try to get best frame from buffer
+                            best_frame, _ = self._get_best_frame_for_track(track_id)
+                            if best_frame is not None:
+                                best_frames.append((best_frame, track_dets))
+                            elif track_dets and track_dets[0].thumbnail:
+                                # Fallback to thumbnail
+                                from PIL import Image as PILImage
+                                best_frames.append((PILImage.open(io.BytesIO(track_dets[0].thumbnail)), track_dets))
+                        else:
+                            # Static detection, use thumbnail if available
+                            if track_dets and track_dets[0].thumbnail:
+                                from PIL import Image as PILImage
+                                best_frames.append((PILImage.open(io.BytesIO(track_dets[0].thumbnail)), track_dets))
+                    
+                    # Create collage from best frames
+                    if best_frames:
+                        try:
+                            from PIL import Image as PILImage
+                            from PIL import ImageDraw
+                            
+                            # Simple grid layout for best frames
+                            frame_size = 200
+                            cols = min(3, len(best_frames))
+                            rows = (len(best_frames) + cols - 1) // cols
+                            
+                            collage = PILImage.new('RGB', (cols * frame_size, rows * frame_size), color='black')
+                            
+                            for idx, (frame, dets) in enumerate(best_frames[:20]):  # Max 20 frames
+                                row = idx // cols
+                                col = idx % cols
+                                
+                                # Resize frame to fit grid
+                                if isinstance(frame, np.ndarray):
+                                    frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB) if len(frame.shape) == 3 and frame.shape[2] == 3 else frame
+                                    frame_pil = PILImage.fromarray(frame_rgb)
+                                else:
+                                    frame_pil = frame
+                                
+                                frame_pil = frame_pil.resize((frame_size, frame_size))
+                                collage.paste(frame_pil, (col * frame_size, row * frame_size))
+                            
+                            bio = io.BytesIO()
+                            collage.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
+                            bio.seek(0)
+                            
+                            await update.message.reply_photo(
+                                photo=bio, 
+                                caption="📊 Visual Summary - Best Frames (Last 24h)"
+                            )
+                            logger.info(f"Visual summary sent with {len(best_frames)} best frames")
+                            return
+                        except Exception as e:
+                            logger.warning(f"Failed to create best-frame collage, falling back to thumbnail collage: {e}")
+                
+                # Fallback: use original thumbnail collage
                 collage = create_detection_collage_from_history(
                     detections_24h, 
                     max_images=20
@@ -287,18 +380,65 @@ class TelegramBot:
         
         # Skip sending individual detection crops to avoid duplicate images
 
-    def send_detection_alert(self, frame, detections):
+    def _get_best_frame_for_track(self, track_id: int):
+        """
+        Select the best frame from buffered frames for a track.
+        
+        Args:
+            track_id: The track identifier
+            
+        Returns:
+            Tuple of (best_frame, all_frames) or (None, []) if no frames found
+        """
+        if track_id is None:
+            return None, []
+        
+        try:
+            frame_data = self.state.get_track_frames(track_id)
+            if not frame_data:
+                logger.warning(f"No buffered frames for track {track_id}")
+                return None, []
+            
+            frames = [f[0] for f in frame_data]  # Extract frame from (frame, detection, timestamp)
+            detections = [f[1] for f in frame_data]
+            
+            best_frame, best_idx = self.frame_scorer.select_best_frame(frames, detections)
+            logger.info(f"Selected best frame for track {track_id}: index {best_idx} out of {len(frames)}")
+            return best_frame, frames
+        except Exception as e:
+            logger.error(f"Error selecting best frame for track {track_id}: {e}")
+            return None, []
+
+    def send_detection_alert(self, frame, detections, use_best_frame: bool = True):
         """
         Send an alert with detected objects to the authorized user.
         This is called from the main thread when motion + detection occurs.
         Thread-safe method.
+        
+        Args:
+            frame: Current frame
+            detections: List of Detection objects
+            use_best_frame: Whether to use best-frame selection (if enabled in settings)
         """
         if not self._bot or not AUTHORIZED_USER_ID:
             return
         
         try:
+            alert_frame = frame
+            
+            # Use best-frame selection if enabled
+            if use_best_frame and FRAME_SELECTION_ENABLED and FRAME_SELECTION_MODE.get("alerts", False):
+                # Try to select best frame from any buffered frames
+                # (frames are buffered as detections stabilize)
+                first_detection = detections[0] if detections else None
+                if first_detection and first_detection.track_id is not None:
+                    best_frame, _ = self._get_best_frame_for_track(first_detection.track_id)
+                    if best_frame is not None:
+                        alert_frame = best_frame
+                        logger.debug("Using best frame for detection alert")
+            
             # Draw bounding boxes on frame
-            annotated_frame = draw_detections_on_frame(frame, detections)
+            annotated_frame = draw_detections_on_frame(alert_frame, detections)
             
             # Create caption with detection info
             detection_labels = [f"{d.class_name} ({d.confidence:.0%})" for d in detections]
@@ -323,6 +463,79 @@ class TelegramBot:
             
         except Exception as e:
             logger.error(f"Failed to prepare detection alert: {e}")
+
+    def send_track_end_alert(self, track_id: int):
+        """
+        Send a follow-up alert with the best frame from a complete detection sequence.
+        Called when a track ends (person/object leaves).
+        
+        Args:
+            track_id: The track identifier that just ended
+        """
+        if not self._bot or not AUTHORIZED_USER_ID or not FRAME_SELECTION_ENABLED:
+            return
+        
+        if not FRAME_SELECTION_MODE.get("alerts", False):
+            logger.debug(f"Track-end alerts disabled, skipping for track {track_id}")
+            return
+        
+        try:
+            best_frame, all_frames = self._get_best_frame_for_track(track_id)
+            if best_frame is None or all_frames is None or len(all_frames) == 0:
+                logger.warning(f"No frames to send for ended track {track_id}")
+                self.state.clear_track_frames(track_id)
+                return
+            
+            # Get recent detections to associate with this track
+            with self.state._lock:
+                recent_detections = list(self.state.detections)
+            
+            # Find detections for this track
+            track_detections = [d for d in recent_detections if d.track_id == track_id]
+            if not track_detections:
+                logger.warning(f"No detections found for ended track {track_id}")
+                self.state.clear_track_frames(track_id)
+                return
+            
+            # Get unique classes and average confidence for this track
+            unique_classes = set(d.class_name for d in track_detections)
+            avg_confidence = sum(d.confidence for d in track_detections) / len(track_detections)
+            
+            # Draw bounding boxes on best frame (use track_detections for visual info)
+            annotated_frame = draw_detections_on_frame(best_frame, track_detections)
+            
+            # Create caption
+            class_labels = ", ".join(sorted(unique_classes))
+            caption = f"✅ Track Ended (Best Frame)\n\n" + f"Objects: {class_labels}\n" + f"Avg Confidence: {avg_confidence:.0%}"
+            
+            # Convert to RGB and prepare image
+            frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
+            image = Image.fromarray(frame_rgb)
+            
+            bio = io.BytesIO()
+            image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
+            bio.seek(0)
+            
+            # Send photo in a new thread
+            alert_thread = threading.Thread(
+                target=self._send_alert_sync,
+                args=(bio, caption),
+                daemon=True
+            )
+            alert_thread.start()
+            logger.info(f"Track-end alert queued for track {track_id} with best frame from {len(all_frames)} captures")
+            
+            # Clean up buffered frames
+            self.state.clear_track_frames(track_id)
+            
+        except Exception as e:
+            logger.error(f"Failed to send track-end alert for track {track_id}: {e}")
+            # Still clear the frames even on error
+            try:
+                self.state.clear_track_frames(track_id)
+            except:
+                pass
+    
     
     def _send_alert_sync(self, bio: io.BytesIO, caption: str):
         """Send photo alert in a separate thread using requests (blocking)."""

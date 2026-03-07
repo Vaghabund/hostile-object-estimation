@@ -50,6 +50,31 @@ DETECTION_STABILITY_FRAMES = int(os.getenv("DETECTION_STABILITY_FRAMES", "2"))
 DETECTION_STABILITY_MAX_MISSES = int(os.getenv("DETECTION_STABILITY_MAX_MISSES", "2"))
 
 # ============================================================================
+# Frame Post-Processing (Best-Frame Selection) - ENABLED BY DEFAULT
+# ============================================================================
+# Smart frame selection to reduce blur in Telegram images
+# Automatically selects the sharpest, clearest frame from detection sequences
+# Hierarchy: face detection > sharpness (Laplacian variance) > confidence score
+FRAME_SELECTION_ENABLED = _str_to_bool(os.getenv("FRAME_SELECTION_ENABLED", "true"))
+FRAME_SELECTION_MODE = {
+    "alerts": _str_to_bool(os.getenv("FRAME_SELECTION_ALERTS", "true")),    # Dual alerts: confirmation + best frame on track end
+    "scan": _str_to_bool(os.getenv("FRAME_SELECTION_SCAN", "true")),        # /scan command uses best frame
+    "summary": _str_to_bool(os.getenv("FRAME_SELECTION_SUMMARY", "true")),  # /summary uses one best frame per track
+}
+
+# Face detection settings
+FACE_DETECTOR_TYPE = os.getenv("FACE_DETECTOR_TYPE", "cascade")  # "cascade" for OpenCV Haar Cascade
+FACE_DETECTOR_MIN_SIZE = (30, 30)  # Minimum face size to detect (width, height)
+
+# Scoring weights for frame selection (face weight is highest priority)
+FRAME_SELECTION_FACE_WEIGHT = float(os.getenv("FRAME_SCORE_FACE_WEIGHT", "1.0"))      # Highest priority: face detection
+FRAME_SELECTION_SHARPNESS_WEIGHT = float(os.getenv("FRAME_SCORE_SHARPNESS_WEIGHT", "0.8"))  # Medium priority: image clarity
+FRAME_SELECTION_CONFIDENCE_WEIGHT = float(os.getenv("FRAME_SCORE_CONFIDENCE_WEIGHT", "0.5"))  # Lowest priority: detection confidence
+
+# Frame buffering settings
+FRAME_BUFFER_MAX_FRAMES_PER_TRACK = int(os.getenv("FRAME_BUFFER_MAX", "150"))  # Max frames to buffer per track_id before earliest are purged
+
+# ============================================================================
 # Logging
 # ============================================================================
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")

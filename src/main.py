@@ -145,9 +145,14 @@ def main():
                 stabilized = stabilizer.filter(detections)
                 stable_detections = stabilized.display
                 confirmed_detections = stabilized.confirmed
+                stale_track_ids = stabilized.stale_track_ids
 
                 # Always refresh the frame snapshot so /scan sees the latest image
                 shared_state.update_frame_with_detections(frame, stable_detections)
+                
+                # Buffer frames for each stable detection (for best-frame selection)
+                for det in stable_detections:
+                    shared_state.buffer_frame(frame, det)
 
                 if confirmed_detections:
                     attach_detection_thumbnails(frame, confirmed_detections)
@@ -160,6 +165,12 @@ def main():
                     # Send Telegram alert with detection image
                     if bot.app:
                         bot.send_detection_alert(frame, confirmed_detections)
+                
+                # Handle track-end alerts for stale tracks
+                for track_id in stale_track_ids:
+                    if bot.app and bot._bot:
+                        logger.info(f"Track {track_id} ended, sending best-frame alert")
+                        bot.send_track_end_alert(track_id)
             else:
                 # Keep the newest frame available without discarding the last detections
                 shared_state.update_frame(frame)

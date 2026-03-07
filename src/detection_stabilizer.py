@@ -1,5 +1,5 @@
 from typing import Dict, Hashable, List, TYPE_CHECKING
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import threading
 from src.shared_state import Detection
 
@@ -18,6 +18,7 @@ class _TrackState:
 class StabilizedDetections:
     display: List[Detection]
     confirmed: List[Detection]
+    stale_track_ids: List[int] = field(default_factory=list)  # Track IDs that just went stale
 
 
 class DetectionStabilizer:
@@ -35,6 +36,7 @@ class DetectionStabilizer:
             frame_idx = self._frame_index
             display: List[Detection] = []
             confirmed: List[Detection] = []
+            stale_track_ids: List[int] = []
             seen_keys = set()
             
             # Get current thresholds
@@ -71,13 +73,16 @@ class DetectionStabilizer:
 
                 if frame_idx - track.last_frame > max_missed:
                     stale_keys.append(key)
+                    # Capture track_id if detection has one (for track-end alerts)
+                    if track.detection.track_id is not None:
+                        stale_track_ids.append(track.detection.track_id)
                 else:
                     track.consecutive = 0
 
             for key in stale_keys:
                 self._tracks.pop(key, None)
 
-            return StabilizedDetections(display=display, confirmed=confirmed)
+            return StabilizedDetections(display=display, confirmed=confirmed, stale_track_ids=stale_track_ids)
 
     @staticmethod
     def _make_key(detection: Detection) -> Hashable:
