@@ -44,10 +44,6 @@ MOTION_DOWNSCALE = float(os.getenv("MOTION_DOWNSCALE", "0.5"))
 YOLO_MODEL = "yolov8n"  # Lightweight model
 YOLO_CONFIDENCE_THRESHOLD = float(os.getenv("YOLO_CONFIDENCE", "0.5"))
 YOLO_ENABLE_TRACKING = True
-# Use an OpenVINO-exported model for ~2-3x faster CPU inference on Intel hardware.
-# The model is exported once on first run; falls back to the PyTorch .pt if OpenVINO
-# is unavailable or export fails, so the app always starts.
-YOLO_USE_OPENVINO = _str_to_bool(os.getenv("YOLO_USE_OPENVINO", "true"))
 
 # ============================================================================
 # CPU / Threading

@@ -399,7 +399,6 @@ All settings are in [config/settings.py](config/settings.py) and can be overridd
 | MOTION_COOLDOWN | 2.0 | Seconds between motion detections |
 | MOTION_DOWNSCALE | 0.5 | Downscale factor before motion detection (0.5 ≈ 4× less CPU; sensitivity unchanged) |
 | YOLO_CONFIDENCE | 0.5 | Min detection confidence (0.0-1.0) |
-| YOLO_USE_OPENVINO | true | Use OpenVINO for ~2-3× faster CPU inference (falls back to PyTorch if unavailable) |
 | YOLO_MODEL | yolov8n | YOLOv8 model size (n=tiny, s=small, m=medium) |
 | CPU_THREADS | all cores | Cap OpenCV + PyTorch worker threads; set lower (e.g. 2) on weak/old CPUs |
 | DETECTION_STABILITY_FRAMES | 2 | Min consecutive frames before logging detection |

@@ -22,6 +22,3 @@ htmlcov/
 ~*
 .yolo/
 runs/
-# OpenVINO / ONNX exports generated on first run
-*_openvino_model/
-*.onnx

@@ -1,12 +1,10 @@
 from ultralytics import YOLO
 import logging
 import time
-from pathlib import Path
 from typing import TYPE_CHECKING
 from config.settings import (
     YOLO_MODEL,
     YOLO_ENABLE_TRACKING,
-    YOLO_USE_OPENVINO,
 )
 from src.shared_state import Detection
 
@@ -24,15 +22,8 @@ class YOLODetector:
         self.model = self._load_model()
 
     def _load_model(self):
-        """Load the OpenVINO model if enabled/available, else the PyTorch .pt."""
+        """Load the YOLO .pt model."""
         pt_path = YOLO_MODEL + ".pt"
-
-        if YOLO_USE_OPENVINO:
-            model = self._try_load_openvino(pt_path)
-            if model is not None:
-                return model
-            logger.warning("Falling back to PyTorch model for inference.")
-
         logger.info(f"Loading YOLO model (PyTorch): {pt_path}...")
         model = self._load_pt(pt_path)
         logger.info("YOLO model loaded successfully.")
@@ -57,29 +48,6 @@ class YOLODetector:
             return YOLO(pt_path)
         finally:
             torch.load = original_load
-
-    def _try_load_openvino(self, pt_path):
-        """
-        Return an OpenVINO-backed YOLO model for faster CPU inference, exporting it
-        once on first run. Returns None (so the caller falls back to PyTorch) if
-        OpenVINO isn't installed or the export/load fails — the app must still start.
-        """
-        try:
-            ov_dir = Path(YOLO_MODEL + "_openvino_model")
-            if not ov_dir.exists():
-                logger.info(f"Exporting {pt_path} to OpenVINO (one-time, may take a minute)...")
-                base = self._load_pt(pt_path)
-                base.export(format="openvino")
-            if not ov_dir.exists():
-                logger.warning("OpenVINO export produced no model directory.")
-                return None
-            logger.info(f"Loading YOLO model (OpenVINO): {ov_dir}")
-            model = YOLO(str(ov_dir), task="detect")
-            logger.info("OpenVINO model loaded successfully.")
-            return model
-        except Exception as e:
-            logger.warning(f"OpenVINO not used ({e}).")
-            return None
 
     def detect(self, frame):
         """

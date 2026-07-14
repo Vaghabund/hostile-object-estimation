@@ -6,7 +6,3 @@ python-telegram-bot==20.3
 python-dotenv==1.0.0
 Pillow==10.1.0
 requests>=2.28.0
-# Optional but recommended: ~2-3x faster CPU inference via OpenVINO export.
-# If missing, the app auto-falls back to PyTorch inference (see YOLO_USE_OPENVINO).
-openvino>=2023.2.0
-onnx>=1.15.0
