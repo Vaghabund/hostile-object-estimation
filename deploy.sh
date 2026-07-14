@@ -8,7 +8,7 @@
 #   1. Checks for required system dependencies (Python, git, etc.)
 #   2. If dependencies missing, provides command to install them
 #   3. Creates .env from .env.example
-#   4. Prompts for Telegram bot credentials (optional)
+#   4. Runs interactive, validated Telegram setup (optional)
 #   5. Creates Python virtual environment (.venv)
 #   6. Installs all Python dependencies
 #   7. Starts the system
@@ -25,6 +25,19 @@
 
 # Change to script directory to handle execution from any location
 cd "$(dirname "$0")" || { echo "Error: Failed to change to script directory"; exit 1; }
+
+# --- Optional: re-run interactive Telegram setup only, then exit ---
+if [ "$1" = "--setup" ] || [ "$1" = "--reconfigure" ]; then
+    if ! command -v python3 &> /dev/null; then
+        echo "❌ Python 3 is required for setup. Install it with: sudo apt install -y python3"
+        exit 1
+    fi
+    if [ ! -f ".env" ] && [ -f ".env.example" ]; then
+        cp ".env.example" ".env"
+    fi
+    python3 src/setup.py
+    exit $?
+fi
 
 echo "Starting Hostile Object Estimation System..."
 
@@ -97,66 +110,16 @@ if [ ! -f "$ENV_FILE" ]; then
     ENV_IS_NEW=1
 fi
 
-# Function to check and prompt for variables
-setup_variable() {
-    local var_name=$1
-    local prompt_msg=$2
-    local placeholder=$3
-    local is_secret=$4  # Optional: if "secret", hide input
-    
-    # Get current value from .env (using -F for literal string matching, -m1 to take the first match only)
-    current_val=$(grep -m1 -F "$var_name=" "$ENV_FILE" | cut -d'=' -f2-)
-    
-    # If value is empty or still the placeholder, ask the user
-    if [ -z "$current_val" ] || [ "$current_val" = "$placeholder" ]; then
-        echo -n "$prompt_msg: "
-        if [ "$is_secret" = "secret" ]; then
-            # For sensitive data, don't echo input
-            read -rs user_input
-            echo  # Print newline after hidden input
-        else
-            read -r user_input
-        fi
-        if [ -n "$user_input" ]; then
-            # Create a temporary file for safe atomic update
-            temp_file=$(mktemp) || { echo "Error: Failed to create temporary file"; return 1; }
-            # Replace the line while preserving all characters
-            while IFS= read -r line || [ -n "$line" ]; do
-                case "$line" in
-                    "$var_name="*)
-                        printf '%s=%s\n' "$var_name" "$user_input"
-                        ;;
-                    *)
-                        printf '%s\n' "$line"
-                        ;;
-                esac
-            done < "$ENV_FILE" > "$temp_file"
-            # Atomic replacement
-            mv "$temp_file" "$ENV_FILE" || { echo "Error: Failed to update .env file"; rm -f "$temp_file"; return 1; }
-            echo "✅ $var_name updated."
-        else
-            # User skipped input - check if it's still a placeholder
-            if [ "$current_val" = "$placeholder" ]; then
-                if [ "$var_name" = "TELEGRAM_BOT_TOKEN" ] || [ "$var_name" = "AUTHORIZED_USER_ID" ]; then
-                    echo "ℹ️  Telegram bot will be disabled. You can configure it later by editing .env"
-                else
-                    echo "⚠️  $var_name is still set to placeholder. Application may not work correctly."
-                fi
-            else
-                echo "⚠️  Skipping $var_name (keeping current value)."
-            fi
-        fi
-    fi
-}
-
-# Only prompt for Telegram settings on first run
+# Only run interactive Telegram setup on first run (when .env was just created)
 if [ $ENV_IS_NEW -eq 1 ]; then
     echo
-    echo "Configuring Telegram bot (optional - you can set this later in .env)..."
-    setup_variable "TELEGRAM_BOT_TOKEN" "Enter your Telegram Bot Token" "your_bot_token_here" "secret" || exit 1
-    setup_variable "AUTHORIZED_USER_ID" "Enter your Telegram User ID" "your_telegram_user_id_here" || exit 1
+    echo "Launching interactive Telegram setup (optional)..."
+    if ! python3 src/setup.py; then
+        echo "⚠️  Telegram setup was skipped or failed."
+        echo "    Run it later with: ./deploy.sh --setup   (or edit .env manually)"
+    fi
 else
-    echo "✅ Using existing .env configuration. (Edit .env to change settings)"
+    echo "✅ Using existing .env configuration. (Edit .env, or re-run ./deploy.sh --setup)"
 fi
 
 # --- Python Environment Check ---

@@ -70,11 +70,13 @@ chmod +x deploy.sh
    - ✅ Starts the application
 
 4. **Configure Telegram Bot (Optional)**
-   - Edit `.env` file with your Telegram credentials:
+   - Run the guided setup: `python src\setup.py` (validates your token and auto-detects your user ID), OR
+   - Edit `.env` file manually with your Telegram credentials:
      ```
      TELEGRAM_BOT_TOKEN=your_bot_token_here
      AUTHORIZED_USER_ID=your_telegram_user_id
      ```
+   - See [Telegram Bot Setup](#telegram-bot-setup) for details
 
 #### Subsequent Runs
 - Simply run `run.bat` again
@@ -114,10 +116,9 @@ chmod +x deploy.sh
      ```
    - Then run `./deploy.sh` again
 
-4. **Follow the Prompts**
-   - The script will ask for your Telegram Bot Token (optional)
-   - The script will ask for your Telegram User ID (optional)
-   - You can skip both and configure later in `.env` file
+4. **Set Up the Telegram Bot (Optional)**
+   - On first run, an interactive wizard prompts for your bot token, validates it against Telegram, and auto-detects your user ID
+   - You can skip it and configure later — see [Telegram Bot Setup](#telegram-bot-setup)
 
 5. **What Happens Automatically**
    - ✅ Checks system dependencies (Python, git, etc.)
@@ -185,6 +186,47 @@ cp .env.example .env
 nano .env
 python3 src/main.py
 ```
+
+---
+
+## Telegram Bot Setup
+
+The Telegram bot is **optional** — motion detection and logging run fine without it. When configured, it lets you control the system remotely and receive detection alerts. The bot needs two values in `.env`:
+
+- `TELEGRAM_BOT_TOKEN` — issued by Telegram's [@BotFather](https://t.me/BotFather)
+- `AUTHORIZED_USER_ID` — your numeric Telegram user ID (this account also receives the alerts)
+
+### Interactive setup (recommended)
+
+On Linux, the **first** `./deploy.sh` run launches this wizard automatically. You can also re-run it any time:
+
+```bash
+./deploy.sh --setup
+```
+
+Or run it directly — it uses only the Python standard library, so it works on a fresh clone before any packages are installed, on both Linux and Windows:
+
+```bash
+python3 src/setup.py      # Windows: python src\setup.py
+```
+
+The wizard will:
+
+1. **Create a bot token.** Open Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, follow the prompts, and copy the token it gives you. Paste it when asked — the wizard validates it against Telegram and confirms your bot's `@username`.
+2. **Detect your user ID automatically.** Send any message (e.g. `/start`) to your new bot, then press Enter. The wizard reads that message back and fills in your numeric user ID for you (with a manual-entry fallback if it can't).
+
+Both values are written to `.env` automatically. Leave the token blank to skip — the bot stays disabled and detection still runs.
+
+### Manual configuration
+
+Prefer to do it by hand? Get the token from [@BotFather](https://t.me/BotFather) and your numeric ID from [@userinfobot](https://t.me/userinfobot), then edit `.env`:
+
+```
+TELEGRAM_BOT_TOKEN=123456789:AA...your_token...
+AUTHORIZED_USER_ID=987654321
+```
+
+> **Windows note:** `run.bat` creates `.env` but does not launch the wizard automatically. Run `python src\setup.py` yourself, or edit `.env` by hand.
 
 ---
 
@@ -355,11 +397,26 @@ All settings are in [config/settings.py](config/settings.py) and can be overridd
 | MOTION_CANNY_HIGH | 150 | Canny edge detection threshold (high) |
 | MOTION_PIXEL_THRESHOLD | 0.5 | % of pixels that must change to trigger motion |
 | MOTION_COOLDOWN | 2.0 | Seconds between motion detections |
+| MOTION_DOWNSCALE | 0.5 | Downscale factor before motion detection (0.5 ≈ 4× less CPU; sensitivity unchanged) |
 | YOLO_CONFIDENCE | 0.5 | Min detection confidence (0.0-1.0) |
+| YOLO_USE_OPENVINO | true | Use OpenVINO for ~2-3× faster CPU inference (falls back to PyTorch if unavailable) |
 | YOLO_MODEL | yolov8n | YOLOv8 model size (n=tiny, s=small, m=medium) |
+| CPU_THREADS | all cores | Cap OpenCV + PyTorch worker threads; set lower (e.g. 2) on weak/old CPUs |
 | DETECTION_STABILITY_FRAMES | 2 | Min consecutive frames before logging detection |
-| DETECTION_HISTORY_MAXLEN | 1000 | Max in-memory detections (auto-purge) |
+| DETECTION_STABILITY_MAX_MISSES | 2 | Frames a track may be missing before it is dropped |
+| DETECTION_HISTORY_MAXLEN | 500 | Max in-memory detections (auto-purge) |
 | TELEGRAM_IMAGE_QUALITY | 60 | JPEG quality for Telegram (0-100) |
+| FRAME_SELECTION_ENABLED | true | Pick the sharpest/clearest frame to reduce blur in sent images |
+| FRAME_SELECTION_ALERTS | true | Apply best-frame selection to detection alerts |
+| FRAME_SELECTION_SCAN | true | Apply best-frame selection to the /scan command |
+| FRAME_SELECTION_SUMMARY | true | Apply best-frame selection to /summary |
+| FACE_DETECTOR_TYPE | cascade | Face detector used for scoring (OpenCV Haar cascade) |
+| FRAME_SCORE_FACE_WEIGHT | 1.0 | Best-frame scoring weight — face presence (highest priority) |
+| FRAME_SCORE_SHARPNESS_WEIGHT | 0.8 | Best-frame scoring weight — image sharpness |
+| FRAME_SCORE_CONFIDENCE_WEIGHT | 0.5 | Best-frame scoring weight — detection confidence |
+| FRAME_BUFFER_MAX | 30 | Max frames buffered per track before earliest are purged |
+| FRAME_SELECTION_MAX_SCORED | 18 | Max buffered frames the quality scorer evaluates |
+| FRAME_SELECTION_FACE_MAX_WIDTH | 320 | Downscale width (px) before the Haar cascade during scoring (0 = off) |
 | LOG_LEVEL | INFO | Python logging level |
 
 **Tip:** For faster startup, set `PREFER_EXTERNAL_CAMERA=false` and specify `CAMERA_ID` directly if you know which camera to use.

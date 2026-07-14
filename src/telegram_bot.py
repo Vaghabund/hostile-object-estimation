@@ -33,6 +33,7 @@ from src.image_utils import (
 )
 from src.runtime_settings import RuntimeSettings
 from src.frame_quality_scorer import FrameQualityScorer
+from src.env_utils import set_env_var
 
 logger = logging.getLogger(__name__)
 
@@ -687,38 +688,10 @@ class TelegramBot:
     def _save_setting_to_env(self, key: str, value):
         """Save a setting to .env file for persistence across restarts."""
         try:
-            env_file = ENV_FILE
-            if not env_file.exists():
-                logger.warning(f".env file not found at {env_file}")
+            if not ENV_FILE.exists():
+                logger.warning(f".env file not found at {ENV_FILE}")
                 return False
-            
-            # Read current .env file
-            lines = []
-            found = False
-            with open(env_file, 'r') as f:
-                for line in f:
-                    if line.startswith(f"{key}="):
-                        lines.append(f"{key}={value}\n")
-                        found = True
-                    else:
-                        lines.append(line)
-            
-            # If setting not found, append it
-            if not found:
-                lines.append(f"{key}={value}\n")
-            
-            # Write atomically: write to a temp file next to .env, then rename
-            tmp_file = env_file.parent / (env_file.name + ".tmp")
-            try:
-                with open(tmp_file, 'w') as f:
-                    f.writelines(lines)
-                    f.flush()
-                    os.fsync(f.fileno())
-                tmp_file.replace(env_file)
-            except Exception:
-                tmp_file.unlink(missing_ok=True)
-                raise
-            
+            set_env_var(ENV_FILE, key, str(value))
             logger.info(f"Saved setting to .env: {key}={value}")
             return True
         except Exception as e:
