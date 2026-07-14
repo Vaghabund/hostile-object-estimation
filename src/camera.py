@@ -68,9 +68,14 @@ class FrameCapture:
             # Set resolution
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-            
+
             # Set FPS
             self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+
+            # Keep only the newest frame in the driver buffer. While YOLO inference
+            # runs, no reads happen; without this the driver queues stale frames and
+            # every subsequent read lags behind real time.
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
 
             self.is_active = True
             logger.info(
@@ -198,7 +203,8 @@ class FrameCapture:
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
             self.cap.set(cv2.CAP_PROP_FPS, self.fps)
-            
+            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+
             logger.info("Camera reconnected successfully")
             self.is_active = True
             return True

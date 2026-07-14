@@ -14,7 +14,19 @@ import logging
 import numpy as np
 from typing import Tuple, Optional
 
+from config.settings import (
+    FRAME_SELECTION_MAX_SCORED,
+    FRAME_SELECTION_FACE_MAX_WIDTH,
+)
+
 logger = logging.getLogger(__name__)
+
+
+def _to_gray(frame: np.ndarray) -> np.ndarray:
+    """Return a grayscale view of a BGR (or already-gray) frame."""
+    if frame.ndim == 3:
+        return cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    return frame
 
 
 class FrameQualityScorer:
@@ -74,23 +86,19 @@ class FrameQualityScorer:
         try:
             if frame is None or frame.size == 0:
                 return 0.0
-            
-            # Convert to grayscale if needed
-            if len(frame.shape) == 3:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = frame
-            
-            # Calculate Laplacian variance (measures edge/detail intensity)
-            laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
-            
-            # Normalize: typical range 0-500+, scale to 0-1 with saturation
-            # Very sharp images can exceed 1.0
-            normalized = min(laplacian_var / 500.0, 1.0)
-            return max(0.0, normalized)
+            return self._sharpness_from_gray(_to_gray(frame))
         except Exception as e:
             logger.warning(f"Error calculating sharpness: {e}")
             return 0.0
+
+    def _sharpness_from_gray(self, gray: np.ndarray) -> float:
+        """Laplacian-variance sharpness from a precomputed grayscale frame."""
+        # Calculate Laplacian variance (measures edge/detail intensity)
+        laplacian_var = cv2.Laplacian(gray, cv2.CV_64F).var()
+        # Normalize: typical range 0-500+, scale to 0-1 with saturation.
+        # Very sharp images can exceed 1.0
+        normalized = min(laplacian_var / 500.0, 1.0)
+        return max(0.0, normalized)
 
     def detect_face(self, frame: np.ndarray) -> bool:
         """
@@ -104,27 +112,41 @@ class FrameQualityScorer:
         """
         if self.face_cascade is None or frame is None or frame.size == 0:
             return False
-        
+
         try:
-            # Convert to grayscale
-            if len(frame.shape) == 3:
-                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            else:
-                gray = frame
-            
-            # Detect faces
-            faces = self.face_cascade.detectMultiScale(
-                gray,
-                scaleFactor=1.1,
-                minNeighbors=5,
-                minSize=self.min_face_size,
-                flags=cv2.CASCADE_SCALE_IMAGE
-            )
-            
-            return len(faces) > 0
+            return self._detect_face_from_gray(_to_gray(frame))
         except Exception as e:
             logger.warning(f"Error detecting face: {e}")
             return False
+
+    def _detect_face_from_gray(self, gray: np.ndarray) -> bool:
+        """Run the Haar cascade on a precomputed grayscale frame.
+
+        Downscales first: face presence is binary, so full resolution is wasted
+        and detectMultiScale cost scales with pixel count. minSize is scaled by
+        the same factor so detection behaviour is preserved.
+        """
+        if self.face_cascade is None:
+            return False
+
+        min_size = self.min_face_size
+        h, w = gray.shape[:2]
+        if 0 < FRAME_SELECTION_FACE_MAX_WIDTH < w:
+            scale = FRAME_SELECTION_FACE_MAX_WIDTH / w
+            gray = cv2.resize(gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
+            min_size = (
+                max(15, int(self.min_face_size[0] * scale)),
+                max(15, int(self.min_face_size[1] * scale)),
+            )
+
+        faces = self.face_cascade.detectMultiScale(
+            gray,
+            scaleFactor=1.1,
+            minNeighbors=5,
+            minSize=min_size,
+            flags=cv2.CASCADE_SCALE_IMAGE
+        )
+        return len(faces) > 0
 
     def score_frame(
         self,
@@ -147,15 +169,22 @@ class FrameQualityScorer:
             Composite score (0-1, but can exceed 1 if face present + sharp)
         """
         try:
+            if frame is None or frame.size == 0:
+                return 0.0
+
             # Ensure confidence is in valid range
             confidence = max(0.0, min(1.0, confidence))
-            
+
+            # Convert to grayscale ONCE and reuse for both face + sharpness
+            # (previously each helper re-ran cvtColor on every scored frame).
+            gray = _to_gray(frame)
+
             # Component 1: Face detection (highest priority)
-            has_face = self.detect_face(frame)
+            has_face = self._detect_face_from_gray(gray)
             face_score = self.face_weight if has_face else 0.0
-            
+
             # Component 2: Sharpness (medium priority)
-            sharpness = self.calculate_sharpness(frame)
+            sharpness = self._sharpness_from_gray(gray)
             sharpness_score = sharpness * self.sharpness_weight
             
             # Component 3: Confidence (lowest priority)
@@ -193,27 +222,44 @@ class FrameQualityScorer:
         """
         if not frames or len(frames) == 0:
             return None, -1
-        
+
         try:
-            scores = []
-            for i, frame in enumerate(frames):
+            # Only score a bounded, evenly-spaced sample. The Haar cascade is the
+            # bottleneck, so scoring every one of up to FRAME_BUFFER_MAX frames is
+            # wasteful; sampling ~18 keeps quality while capping the burst cost.
+            n = len(frames)
+            if n <= FRAME_SELECTION_MAX_SCORED:
+                candidate_indices = range(n)
+            else:
+                candidate_indices = sorted(set(
+                    int(i) for i in np.linspace(0, n - 1, FRAME_SELECTION_MAX_SCORED)
+                ))
+
+            best_idx = -1
+            best_score = float("-inf")
+            for i in candidate_indices:
+                frame = frames[i]
                 if frame is None:
-                    scores.append(-1.0)  # Penalize None frames
                     continue
-                
+
                 # Get confidence from corresponding detection if available
                 confidence = 0.5  # Default confidence
                 if detections and i < len(detections) and detections[i] is not None:
                     confidence = detections[i].confidence
-                
+
                 score = self.score_frame(frame, confidence)
-                scores.append(score)
-            
-            # Find best frame
-            best_idx = scores.index(max(scores)) if scores else -1
-            best_frame = frames[best_idx] if best_idx >= 0 else None
-            
-            logger.debug(f"Selected frame {best_idx} (score: {scores[best_idx]:.3f}) from {len(frames)} frames")
+                if score > best_score:
+                    best_score = score
+                    best_idx = i
+
+            if best_idx < 0:
+                return None, -1
+
+            best_frame = frames[best_idx]
+            logger.debug(
+                f"Selected frame {best_idx} (score: {best_score:.3f}) from {n} frames "
+                f"(scored {len(list(candidate_indices))})"
+            )
             return best_frame, best_idx
         except Exception as e:
             logger.error(f"Error selecting best frame: {e}")

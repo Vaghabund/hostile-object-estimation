@@ -4,6 +4,8 @@ import logging
 import numpy as np
 from typing import TYPE_CHECKING
 
+from config.settings import MOTION_DOWNSCALE
+
 if TYPE_CHECKING:
     from src.runtime_settings import RuntimeSettings
 
@@ -35,9 +37,18 @@ class MotionDetector:
         if frame is None:
             return False
 
+        # Downscale first: motion runs on every frame, and Canny cost scales with
+        # pixel count. The change metric is a percentage, so shrinking the frame
+        # keeps sensitivity while cutting work (~4x at 0.5).
+        if 0 < MOTION_DOWNSCALE < 1.0:
+            frame = cv2.resize(
+                frame, None, fx=MOTION_DOWNSCALE, fy=MOTION_DOWNSCALE,
+                interpolation=cv2.INTER_AREA
+            )
+
         # Convert to grayscale for edge detection
         gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        
+
         # Apply Canny edge detection
         edges = cv2.Canny(
             gray, 

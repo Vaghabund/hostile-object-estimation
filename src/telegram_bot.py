@@ -36,6 +36,10 @@ from src.frame_quality_scorer import FrameQualityScorer
 
 logger = logging.getLogger(__name__)
 
+# Reused across alerts for HTTP connection pooling (keep-alive to api.telegram.org)
+# instead of opening a fresh connection per photo.
+_HTTP_SESSION = requests.Session()
+
 # COCO class names (80 classes that YOLOv8 can detect)
 YOLO_COCO_CLASSES = [
     "person", "bicycle", "car", "motorcycle", "airplane", "bus", "train", "truck",
@@ -65,7 +69,12 @@ class TelegramBot:
         self._command_timestamps = defaultdict(float)
         self._rate_limit_seconds = 2.0
         self._bot = None  # Will be set after app is created
-        
+
+        # Serializes access to the Haar cascade inside the scorer. Alert building now
+        # runs in worker threads, and cv2.CascadeClassifier.detectMultiScale is not
+        # safe to call concurrently on a shared instance.
+        self._scorer_lock = threading.Lock()
+
         # Initialize frame quality scorer for best-frame selection
         self.frame_scorer = FrameQualityScorer(
             face_detector_type=FACE_DETECTOR_TYPE,
@@ -401,8 +410,9 @@ class TelegramBot:
             
             frames = [f[0] for f in frame_data]  # Extract frame from (frame, detection, timestamp)
             detections = [f[1] for f in frame_data]
-            
-            best_frame, best_idx = self.frame_scorer.select_best_frame(frames, detections)
+
+            with self._scorer_lock:
+                best_frame, best_idx = self.frame_scorer.select_best_frame(frames, detections)
             logger.info(f"Selected best frame for track {track_id}: index {best_idx} out of {len(frames)}")
             return best_frame, frames
         except Exception as e:
@@ -412,20 +422,33 @@ class TelegramBot:
     def send_detection_alert(self, frame, detections, use_best_frame: bool = True):
         """
         Send an alert with detected objects to the authorized user.
-        This is called from the main thread when motion + detection occurs.
-        Thread-safe method.
-        
+        Called from the main detection loop; returns immediately.
+
+        All heavy work (best-frame Haar scoring, drawing, JPEG encoding, network I/O)
+        happens in a worker thread so the main loop is never blocked. The frame must
+        be an owned snapshot (the main loop copies once per iteration) since the
+        worker reads it after the caller returns.
+
         Args:
-            frame: Current frame
+            frame: Current frame (owned snapshot)
             detections: List of Detection objects
             use_best_frame: Whether to use best-frame selection (if enabled in settings)
         """
-        if not self._bot or not AUTHORIZED_USER_ID:
+        if not self._bot or not AUTHORIZED_USER_ID or not detections:
             return
-        
+
+        worker = threading.Thread(
+            target=self._build_and_send_detection_alert,
+            args=(frame, list(detections), use_best_frame),
+            daemon=True
+        )
+        worker.start()
+
+    def _build_and_send_detection_alert(self, frame, detections, use_best_frame: bool):
+        """Worker-thread body for send_detection_alert (see that method)."""
         try:
             alert_frame = frame
-            
+
             # Use best-frame selection if enabled
             if use_best_frame and FRAME_SELECTION_ENABLED and FRAME_SELECTION_MODE.get("alerts", False):
                 # Try to select best frame from any buffered frames
@@ -436,31 +459,25 @@ class TelegramBot:
                     if best_frame is not None:
                         alert_frame = best_frame
                         logger.debug("Using best frame for detection alert")
-            
+
             # Draw bounding boxes on frame
             annotated_frame = draw_detections_on_frame(alert_frame, detections)
-            
+
             # Create caption with detection info
             detection_labels = [f"{d.class_name} ({d.confidence:.0%})" for d in detections]
             caption = f"🚨 Detection Alert!\n\n" + "\n".join(f"• {label}" for label in detection_labels)
-            
+
             # Convert to RGB and prepare image
             frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
             image = Image.fromarray(frame_rgb)
-            
+
             bio = io.BytesIO()
             image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
             bio.seek(0)
-            
-            # Send photo in a new thread to avoid blocking main loop
-            alert_thread = threading.Thread(
-                target=self._send_alert_sync,
-                args=(bio, caption),
-                daemon=True
-            )
-            alert_thread.start()
-            logger.debug(f"Detection alert queued: {', '.join(detection_labels)}")
-            
+
+            self._send_alert_sync(bio, caption)
+            logger.debug(f"Detection alert sent: {', '.join(detection_labels)}")
+
         except Exception as e:
             logger.error(f"Failed to prepare detection alert: {e}")
 
@@ -472,13 +489,27 @@ class TelegramBot:
         Args:
             track_id: The track identifier that just ended
         """
+        # In any path where we won't actually send, still release the track's
+        # buffered frames so they don't accumulate in memory.
         if not self._bot or not AUTHORIZED_USER_ID or not FRAME_SELECTION_ENABLED:
+            self.state.clear_track_frames(track_id)
             return
-        
+
         if not FRAME_SELECTION_MODE.get("alerts", False):
             logger.debug(f"Track-end alerts disabled, skipping for track {track_id}")
+            self.state.clear_track_frames(track_id)
             return
-        
+
+        # Best-frame scoring + encoding is expensive; do it off the main loop.
+        worker = threading.Thread(
+            target=self._build_and_send_track_end_alert,
+            args=(track_id,),
+            daemon=True
+        )
+        worker.start()
+
+    def _build_and_send_track_end_alert(self, track_id: int):
+        """Worker-thread body for send_track_end_alert (see that method)."""
         try:
             best_frame, all_frames = self._get_best_frame_for_track(track_id)
             if best_frame is None or all_frames is None or len(all_frames) == 0:
@@ -515,16 +546,11 @@ class TelegramBot:
             bio = io.BytesIO()
             image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
             bio.seek(0)
-            
-            # Send photo in a new thread
-            alert_thread = threading.Thread(
-                target=self._send_alert_sync,
-                args=(bio, caption),
-                daemon=True
-            )
-            alert_thread.start()
-            logger.info(f"Track-end alert queued for track {track_id} with best frame from {len(all_frames)} captures")
-            
+
+            # Already on a worker thread, so send synchronously here.
+            self._send_alert_sync(bio, caption)
+            logger.info(f"Track-end alert sent for track {track_id} with best frame from {len(all_frames)} captures")
+
             # Clean up buffered frames
             self.state.clear_track_frames(track_id)
             
@@ -548,7 +574,7 @@ class TelegramBot:
                 "parse_mode": "HTML"
             }
             
-            response = requests.post(url, files=files, data=data, timeout=10)
+            response = _HTTP_SESSION.post(url, files=files, data=data, timeout=10)
             response.raise_for_status()
             logger.info("Detection alert sent successfully")
         except requests.exceptions.RequestException as e:

@@ -23,6 +23,30 @@ def _resample_high_quality():
     return Image.ANTIALIAS
 
 
+# Font candidates tried in order; the previous hard-coded Linux-only path always
+# failed on the Windows target and silently fell back to Pillow's tiny bitmap font.
+_FONT_CANDIDATES = [
+    "DejaVuSans.ttf",                                        # Linux (fontconfig lookup) / bundled
+    "arial.ttf",                                             # Windows system font
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",      # Linux absolute
+]
+_FONT_CANDIDATES_BOLD = [
+    "DejaVuSans-Bold.ttf",
+    "arialbd.ttf",
+    "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+]
+
+
+def _load_font(size: int, bold: bool = False):
+    """Load a TrueType font cross-platform, falling back to Pillow's default."""
+    for name in (_FONT_CANDIDATES_BOLD if bold else _FONT_CANDIDATES):
+        try:
+            return ImageFont.truetype(name, size)
+        except (OSError, IOError):
+            continue
+    return ImageFont.load_default()
+
+
 def _create_detection_crop(frame, det: Detection, target_size: Tuple[int, int], padding: float = 0.1) -> Optional[Image.Image]:
     """Crop and resize a detection region from the frame."""
     if frame is None or not det or not det.bbox:
@@ -159,12 +183,8 @@ def create_detection_collage_from_history(detections: List[Detection],
     if not detections:
         return None
 
-    try:
-        font_main = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 16)
-        font_small = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", 12)
-    except (OSError, IOError):
-        font_main = ImageFont.load_default()
-        font_small = ImageFont.load_default()
+    font_main = _load_font(16)
+    font_small = _load_font(12)
 
     sorted_detections = sorted(detections, key=lambda d: d.timestamp, reverse=True)
     resample_filter = _resample_high_quality()
@@ -255,10 +275,7 @@ def create_latest_detections_collage(frame, detections: List[Detection],
         draw = ImageDraw.Draw(crop_pil)
         label = f"{det.class_name}\n{det.confidence:.2f}"
 
-        try:
-            font = ImageFont.truetype("/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf", 12)
-        except (OSError, IOError):
-            font = ImageFont.load_default()
+        font = _load_font(12, bold=True)
 
         draw.rectangle([(0, 0), (target_size[0], 35)], fill=(0, 0, 0))
         draw.text((5, 5), label, fill='white', font=font)

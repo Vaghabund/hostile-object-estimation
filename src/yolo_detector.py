@@ -1,10 +1,12 @@
 from ultralytics import YOLO
 import logging
 import time
+from pathlib import Path
 from typing import TYPE_CHECKING
 from config.settings import (
-    YOLO_MODEL, 
-    YOLO_ENABLE_TRACKING
+    YOLO_MODEL,
+    YOLO_ENABLE_TRACKING,
+    YOLO_USE_OPENVINO,
 )
 from src.shared_state import Detection
 
@@ -19,30 +21,65 @@ class YOLODetector:
     """
     def __init__(self, runtime_settings: 'RuntimeSettings'):
         self.settings = runtime_settings
-        logger.info(f"Loading YOLO model: {YOLO_MODEL}...")
+        self.model = self._load_model()
+
+    def _load_model(self):
+        """Load the OpenVINO model if enabled/available, else the PyTorch .pt."""
+        pt_path = YOLO_MODEL + ".pt"
+
+        if YOLO_USE_OPENVINO:
+            model = self._try_load_openvino(pt_path)
+            if model is not None:
+                return model
+            logger.warning("Falling back to PyTorch model for inference.")
+
+        logger.info(f"Loading YOLO model (PyTorch): {pt_path}...")
+        model = self._load_pt(pt_path)
+        logger.info("YOLO model loaded successfully.")
+        return model
+
+    def _load_pt(self, pt_path):
+        """Load a .pt model, working around the PyTorch 2.6+ weights_only default."""
+        # Monkey patch torch.load to default weights_only=False temporarily.
+        # weights_only=True rejects the non-tensor data stored in ultralytics .pt files.
+        # We pop any caller-supplied 'weights_only' from kwargs to avoid a TypeError
+        # when both the positional override and a kwarg are present simultaneously.
+        import torch
+        original_load = torch.load
+
+        def _patched_load(f, map_location=None, pickle_module=None, **kwargs):
+            kwargs.pop('weights_only', None)
+            return original_load(f, map_location=map_location, pickle_module=pickle_module, weights_only=False, **kwargs)
+
+        torch.load = _patched_load
         try:
-            # Fix for PyTorch 2.6+ weights_only=True default
-            import torch
-            # Monkey patch torch.load to default weights_only=False temporarily.
-            # weights_only=True rejects the non-tensor data stored in ultralytics .pt files.
-            # We pop any caller-supplied 'weights_only' from kwargs to avoid a TypeError
-            # when both the positional override and a kwarg are present simultaneously.
-            original_load = torch.load
-            def _patched_load(f, map_location=None, pickle_module=None, **kwargs):
-                kwargs.pop('weights_only', None)
-                return original_load(f, map_location=map_location, pickle_module=pickle_module, weights_only=False, **kwargs)
-            torch.load = _patched_load
-            
             # Auto-downloads model on first run
-            self.model = YOLO(YOLO_MODEL + ".pt")
-            
-            # Restore original load
+            return YOLO(pt_path)
+        finally:
             torch.load = original_load
-            
-            logger.info("YOLO model loaded successfully.")
+
+    def _try_load_openvino(self, pt_path):
+        """
+        Return an OpenVINO-backed YOLO model for faster CPU inference, exporting it
+        once on first run. Returns None (so the caller falls back to PyTorch) if
+        OpenVINO isn't installed or the export/load fails — the app must still start.
+        """
+        try:
+            ov_dir = Path(YOLO_MODEL + "_openvino_model")
+            if not ov_dir.exists():
+                logger.info(f"Exporting {pt_path} to OpenVINO (one-time, may take a minute)...")
+                base = self._load_pt(pt_path)
+                base.export(format="openvino")
+            if not ov_dir.exists():
+                logger.warning("OpenVINO export produced no model directory.")
+                return None
+            logger.info(f"Loading YOLO model (OpenVINO): {ov_dir}")
+            model = YOLO(str(ov_dir), task="detect")
+            logger.info("OpenVINO model loaded successfully.")
+            return model
         except Exception as e:
-            logger.error(f"Failed to load YOLO model: {e}")
-            raise
+            logger.warning(f"OpenVINO not used ({e}).")
+            return None
 
     def detect(self, frame):
         """
@@ -80,49 +117,40 @@ class YOLODetector:
         
         detections = []
         timestamp = time.time()
-        
-        # Process results
+        names = self.model.names
+
+        # Process results. Pull the whole boxes tensor to CPU once per result and
+        # index numpy rows, instead of doing a per-box .cpu().numpy() device sync.
         for r in results:
-            if r.boxes is None:
+            if r.boxes is None or len(r.boxes) == 0:
                 continue
-                
+
             boxes = r.boxes
-            for box in boxes:
-                # Get class name
-                if box.cls is None:
-                    continue
-                cls_id = int(box.cls[0])
-                if self.model.names and cls_id in self.model.names:
-                    class_name = self.model.names[cls_id]
+            if boxes.xyxy is None or boxes.conf is None or boxes.cls is None:
+                continue
+
+            xyxy = boxes.xyxy.cpu().numpy().astype(int)
+            confs = boxes.conf.cpu().numpy()
+            clss = boxes.cls.cpu().numpy().astype(int)
+            ids = boxes.id.cpu().numpy().astype(int) if boxes.id is not None else None
+
+            for i in range(len(xyxy)):
+                cls_id = int(clss[i])
+                if names and cls_id in names:
+                    class_name = names[cls_id]
                 else:
                     class_name = f"unknown_{cls_id}"
-                
-                # Get confidence
-                if box.conf is None:
-                    continue
-                conf = float(box.conf[0])
-                
-                # Get track ID (if available)
-                # handle box.id being None safely
-                track_id = None
-                if box.id is not None:
-                     track_id = int(box.id[0])
-                
-                # Get bounding box [x1, y1, x2, y2]
-                if box.xyxy is None:
-                    continue
-                bbox = box.xyxy[0].cpu().numpy().astype(int).tolist()
-                
-                # Filter by enabled classes
+
+                # Filter by enabled classes (cheap check before building the object)
                 if not self.settings.is_class_enabled(class_name):
                     continue
-                
+
                 det = Detection(
                     timestamp,
                     class_name,
-                    conf,
-                    track_id,
-                    bbox
+                    float(confs[i]),
+                    int(ids[i]) if ids is not None else None,
+                    xyxy[i].tolist(),
                 )
                 detections.append(det)
 

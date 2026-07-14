@@ -50,10 +50,11 @@ class SharedState:
         self.start_time = time.time()
 
     def update_frame(self, frame):
+        # Frames handed in here are owned, single-iteration snapshots (the main loop
+        # copies once per iteration), so we store the reference directly instead of
+        # re-copying. Readers below return references and copy only when they draw.
         with self._lock:
-            # Copy frame to ensure thread safety across different OpenCV backends
-            # (DSHOW on Windows, V4L2 on Linux, AVFoundation on macOS may behave differently)
-            self.latest_frame = frame.copy() if frame is not None else None
+            self.latest_frame = frame
             self.latest_frame_time = time.time()
 
     def add_detections(self, new_detections: List[Detection]):
@@ -74,22 +75,22 @@ class SharedState:
                 self.class_counts[d.class_name] = self.class_counts.get(d.class_name, 0) + 1
 
     def get_latest_frame(self):
+        # Returns a reference to an immutable snapshot; callers must not draw on it
+        # in place (draw_detections_on_frame already copies before drawing).
         with self._lock:
-            return self.latest_frame.copy() if self.latest_frame is not None else None
+            return self.latest_frame
 
     def get_latest_frame_with_detections(self):
         """Get latest frame and its associated detections."""
         with self._lock:
-            frame_copy = self.latest_frame.copy() if self.latest_frame is not None else None
             detections_copy = self.latest_detections.copy() if self.latest_detections else []
-            return frame_copy, detections_copy
+            return self.latest_frame, detections_copy
 
     def update_frame_with_detections(self, frame, detections):
         """Update frame and store associated detections."""
         with self._lock:
-            # Copy frame to ensure thread safety across different OpenCV backends
-            # (DSHOW on Windows, V4L2 on Linux, AVFoundation on macOS may behave differently)
-            self.latest_frame = frame.copy() if frame is not None else None
+            # Frame is an owned per-iteration snapshot; store the reference directly.
+            self.latest_frame = frame
             self.latest_frame_time = time.time()
             self.latest_detections = detections.copy() if detections else []
 
@@ -122,10 +123,12 @@ class SharedState:
                 self.track_frames[detection.track_id] = deque(
                     maxlen=FRAME_BUFFER_MAX_FRAMES_PER_TRACK
                 )
-            
-            # Store (frame copy, detection, timestamp)
+
+            # Store the frame reference. The caller passes one owned snapshot per
+            # iteration, so buffering N detections no longer deep-copies the same
+            # frame N times; distinct iterations still hold distinct arrays.
             self.track_frames[detection.track_id].append(
-                (frame.copy() if hasattr(frame, 'copy') else frame, detection, time.time())
+                (frame, detection, time.time())
             )
 
     def get_track_frames(self, track_id: int) -> List[Tuple[object, Detection, float]]:

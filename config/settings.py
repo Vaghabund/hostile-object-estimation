@@ -33,6 +33,10 @@ MOTION_CANNY_THRESHOLD_LOW = int(os.getenv("MOTION_CANNY_LOW", "50"))
 MOTION_CANNY_THRESHOLD_HIGH = int(os.getenv("MOTION_CANNY_HIGH", "150"))
 MOTION_CHANGED_PIXELS_THRESHOLD = float(os.getenv("MOTION_PIXEL_THRESHOLD", "0.5"))  # % of pixels changed
 MOTION_COOLDOWN_SECONDS = float(os.getenv("MOTION_COOLDOWN", "2.0"))
+# Downscale factor applied before grayscale+Canny. Motion runs on 100% of frames,
+# so shrinking here is the single biggest per-frame CPU win. The threshold is a
+# percentage of pixels, so sensitivity is unaffected. 0.5 => ~4x less work.
+MOTION_DOWNSCALE = float(os.getenv("MOTION_DOWNSCALE", "0.5"))
 
 # ============================================================================
 # YOLO Configuration
@@ -40,6 +44,19 @@ MOTION_COOLDOWN_SECONDS = float(os.getenv("MOTION_COOLDOWN", "2.0"))
 YOLO_MODEL = "yolov8n"  # Lightweight model
 YOLO_CONFIDENCE_THRESHOLD = float(os.getenv("YOLO_CONFIDENCE", "0.5"))
 YOLO_ENABLE_TRACKING = True
+# Use an OpenVINO-exported model for ~2-3x faster CPU inference on Intel hardware.
+# The model is exported once on first run; falls back to the PyTorch .pt if OpenVINO
+# is unavailable or export fails, so the app always starts.
+YOLO_USE_OPENVINO = _str_to_bool(os.getenv("YOLO_USE_OPENVINO", "true"))
+
+# ============================================================================
+# CPU / Threading
+# ============================================================================
+# Cap OpenCV + PyTorch worker threads. On weak/old CPUs, letting both libraries
+# spin up all cores oversubscribes the machine (motion encode in alert threads vs
+# YOLO in the main loop). Defaults to all logical cores; set lower (e.g. 2) on
+# shared or very old boxes.
+CPU_THREADS = int(os.getenv("CPU_THREADS", str(os.cpu_count() or 1)))
 
 # ============================================================================
 # Data Management
@@ -72,7 +89,16 @@ FRAME_SELECTION_SHARPNESS_WEIGHT = float(os.getenv("FRAME_SCORE_SHARPNESS_WEIGHT
 FRAME_SELECTION_CONFIDENCE_WEIGHT = float(os.getenv("FRAME_SCORE_CONFIDENCE_WEIGHT", "0.5"))  # Lowest priority: detection confidence
 
 # Frame buffering settings
-FRAME_BUFFER_MAX_FRAMES_PER_TRACK = int(os.getenv("FRAME_BUFFER_MAX", "150"))  # Max frames to buffer per track_id before earliest are purged
+# Each buffered frame is a full 640x480x3 array (~0.9 MB), kept per track_id.
+# 150 => ~135 MB/track, so keep this modest. Best-frame selection subsamples
+# anyway (FRAME_SELECTION_MAX_SCORED), so a large buffer buys little.
+FRAME_BUFFER_MAX_FRAMES_PER_TRACK = int(os.getenv("FRAME_BUFFER_MAX", "30"))  # Max frames to buffer per track_id before earliest are purged
+# Cap how many buffered frames the quality scorer evaluates (Haar cascade is the
+# bottleneck). Frames are sampled evenly across the buffer.
+FRAME_SELECTION_MAX_SCORED = int(os.getenv("FRAME_SELECTION_MAX_SCORED", "18"))
+# Downscale width (px) used before the Haar cascade during scoring. Face presence
+# is binary, so full resolution is wasted here. 0 disables downscaling.
+FRAME_SELECTION_FACE_MAX_WIDTH = int(os.getenv("FRAME_SELECTION_FACE_MAX_WIDTH", "320"))
 
 # ============================================================================
 # Logging
