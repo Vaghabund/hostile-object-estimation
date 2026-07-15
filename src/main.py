@@ -6,7 +6,20 @@ import time
 # Add parent directory to path for imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
-from config.settings import LOG_LEVEL, CPU_THREADS
+from config.settings import (
+    LOG_LEVEL,
+    CPU_THREADS,
+    ANALYTICS_DB_PATH,
+    ANALYTICS_RETENTION_DAYS,
+    ZONES,
+    ALERT_PRIORITY_CLASSES,
+    ANOMALY_DETECTION_ENABLED,
+    ANOMALY_MIN_HISTORY_DAYS,
+    DWELL_OUTLIER_MIN_SAMPLES,
+    SEQUENCE_TARGET_CLASS,
+    SEQUENCE_VEHICLE_CLASSES,
+    SEQUENCE_WINDOW_SECONDS,
+)
 from src.camera import FrameCapture
 from src.motion_detector import MotionDetector
 from src.yolo_detector import YOLODetector
@@ -17,6 +30,8 @@ from src.stats import StatsGenerator
 from src.image_utils import attach_detection_thumbnails
 from src.detection_stabilizer import DetectionStabilizer
 from src.runtime_settings import RuntimeSettings
+from src.analytics_db import AnalyticsDB
+from src.analysis import AnalysisEngine
 
 # Setup logging
 logging.basicConfig(
@@ -105,14 +120,29 @@ def main():
 
     # Initialize runtime settings
     runtime_settings = RuntimeSettings()
-    
+
     # Initialize camera
     camera = FrameCapture()
     motion_detector = MotionDetector(runtime_settings)
     shared_state = SharedState()
     stats_generator = StatsGenerator(shared_state)
     stabilizer = DetectionStabilizer(runtime_settings)
-    
+
+    # Analytics: persistence + interpretation (baselines, anomalies, digests, reports)
+    analytics_db = AnalyticsDB(ANALYTICS_DB_PATH)
+    analytics_db.prune(ANALYTICS_RETENTION_DAYS)
+    analysis_engine = AnalysisEngine(
+        analytics_db,
+        priority_classes=ALERT_PRIORITY_CLASSES,
+        zones=ZONES,
+        anomaly_enabled=ANOMALY_DETECTION_ENABLED,
+        anomaly_min_history_days=ANOMALY_MIN_HISTORY_DAYS,
+        dwell_outlier_min_samples=DWELL_OUTLIER_MIN_SAMPLES,
+        sequence_target_class=SEQUENCE_TARGET_CLASS,
+        sequence_vehicle_classes=SEQUENCE_VEHICLE_CLASSES,
+        sequence_window_s=SEQUENCE_WINDOW_SECONDS,
+    )
+
     # Initialize YOLO (this might take a moment to download weights)
     try:
         yolo_detector = YOLODetector(runtime_settings)
@@ -121,10 +151,11 @@ def main():
         return
 
     # Phase 5: Start Telegram Bot in background thread
-    bot = TelegramBot(shared_state, runtime_settings)
+    bot = TelegramBot(shared_state, runtime_settings, analysis_engine)
     if bot.app:
         bot_thread = threading.Thread(target=bot.run, daemon=True)
         bot_thread.start()
+        bot.start_digest_scheduler()
     
     try:
         camera.start()
@@ -137,6 +168,7 @@ def main():
         frame_count = 0
         start_time = time.time()
         last_stats_log = 0
+        last_prune = time.time()
 
         while True:
             frame, frame_id = camera.get_frame()
@@ -172,20 +204,31 @@ def main():
                 if confirmed_detections:
                     attach_detection_thumbnails(frame_snapshot, confirmed_detections)
                     shared_state.add_detections(confirmed_detections)
+                    analysis_engine.record_detections(confirmed_detections, frame_snapshot.shape)
 
                     # Log to console
                     for d in confirmed_detections:
                         logger.info(f"DETECTED: {d.class_name} ({d.confidence:.2f}) ID: {d.track_id}")
 
-                    # Send Telegram alert with detection image (non-blocking)
+                    # Immediate Telegram push only for priority classes or anomalies
+                    # (novel hour-of-day, vehicle-then-person sequence). Everything
+                    # else is recorded silently and surfaces in the periodic digest.
                     if bot.app:
-                        bot.send_detection_alert(frame_snapshot, confirmed_detections)
+                        now = time.time()
+                        classes_present = {d.class_name for d in confirmed_detections}
+                        alert_classes = {
+                            c for c in classes_present
+                            if analysis_engine.should_alert_immediately(c, now)[0]
+                        }
+                        to_alert = [d for d in confirmed_detections if d.class_name in alert_classes]
+                        if to_alert:
+                            bot.send_detection_alert(frame_snapshot, to_alert)
 
                 # Handle track-end alerts for stale tracks
                 for track_id in stale_track_ids:
+                    track_summary = analysis_engine.finalize_track(track_id, shared_state, frame_snapshot.shape)
                     if bot.app and bot._bot:
-                        logger.info(f"Track {track_id} ended, sending best-frame alert")
-                        bot.send_track_end_alert(track_id)  # clears its own buffer
+                        bot.handle_track_end(track_id, track_summary)  # clears its own buffer
                     else:
                         # No bot to consume the buffered frames — release them so
                         # track_frames doesn't grow without bound.
@@ -207,6 +250,11 @@ def main():
                 logger.info(f"STATUS UPDATE:\n{summary.replace('*', '')}")
                 last_stats_log = current_time
 
+            # Prune old analytics rows once a day
+            if current_time - last_prune > 86400:
+                analytics_db.prune(ANALYTICS_RETENTION_DAYS)
+                last_prune = current_time
+
             # cap.read() blocks until the next frame (BUFFERSIZE=1), so it already
             # paces the loop to the camera's FPS. A tiny yield keeps CPU from
             # busy-spinning on backends where read() can return without blocking.
@@ -218,6 +266,7 @@ def main():
         logger.error(f"Unexpected error in main loop: {e}")
     finally:
         camera.stop()
+        analytics_db.close()
         logger.info("System stopped")
 
 

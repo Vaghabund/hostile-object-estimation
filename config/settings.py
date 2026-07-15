@@ -6,6 +6,24 @@ from dotenv import load_dotenv
 def _str_to_bool(value: str) -> bool:
 	return value.strip().lower() in {"1", "true", "yes", "on"}
 
+
+def _parse_zones(value: str):
+	"""Parse "name:x1,y1,x2,y2;name2:x1,y1,x2,y2" (normalized 0-1 rects) into a dict.
+	Malformed entries are skipped with a warning rather than crashing startup."""
+	zones = {}
+	for part in value.split(";"):
+		part = part.strip()
+		if not part:
+			continue
+		try:
+			name, coords = part.split(":", 1)
+			x1, y1, x2, y2 = (float(v) for v in coords.split(","))
+			zones[name.strip()] = (min(x1, x2), min(y1, y2), max(x1, x2), max(y1, y2))
+		except (ValueError, IndexError):
+			print(f"WARNING: skipping malformed ZONES entry: {part!r}")
+	return zones
+
+
 # Load environment variables from .env file
 ENV_FILE = Path(__file__).parent.parent / ".env"
 load_dotenv(ENV_FILE)
@@ -95,6 +113,46 @@ FRAME_SELECTION_MAX_SCORED = int(os.getenv("FRAME_SELECTION_MAX_SCORED", "18"))
 # Downscale width (px) used before the Haar cascade during scoring. Face presence
 # is binary, so full resolution is wasted here. 0 disables downscaling.
 FRAME_SELECTION_FACE_MAX_WIDTH = int(os.getenv("FRAME_SELECTION_FACE_MAX_WIDTH", "320"))
+
+# ============================================================================
+# Analytics (SQLite persistence + pattern-of-life analysis)
+# ============================================================================
+ANALYTICS_DB_PATH = Path(os.getenv("ANALYTICS_DB_PATH", "data/analytics.db"))
+if not ANALYTICS_DB_PATH.is_absolute():
+    ANALYTICS_DB_PATH = Path(__file__).parent.parent / ANALYTICS_DB_PATH
+ANALYTICS_RETENTION_DAYS = int(os.getenv("ANALYTICS_RETENTION_DAYS", "30"))
+
+# Named rectangular regions of interest, normalized 0-1 coordinates:
+# "gate:0,0,0.3,1;driveway:0.3,0,1,1". Empty = zone/direction features disabled.
+ZONES = _parse_zones(os.getenv("ZONES", ""))
+
+# ============================================================================
+# Alerting (immediate push vs periodic digest)
+# ============================================================================
+# Classes that always get an immediate Telegram push. Everything else is
+# recorded to the DB and only surfaces in the periodic digest / /report,
+# unless promoted by an anomaly check below.
+ALERT_PRIORITY_CLASSES = {
+    c.strip().lower() for c in os.getenv("ALERT_PRIORITY_CLASSES", "person").split(",") if c.strip()
+}
+ALERT_DIGEST_ENABLED = _str_to_bool(os.getenv("ALERT_DIGEST_ENABLED", "true"))
+ALERT_DIGEST_INTERVAL_MINUTES = int(os.getenv("ALERT_DIGEST_INTERVAL_MINUTES", "60"))
+
+# Anomaly-based promotion: non-priority classes still get an immediate alert
+# when they deviate from the learned baseline (novel hour-of-day, outlier dwell).
+ANOMALY_DETECTION_ENABLED = _str_to_bool(os.getenv("ANOMALY_DETECTION_ENABLED", "true"))
+# Minimum distinct days of prior history required before novel-hour checks can
+# fire, so the system doesn't flag everything as "anomalous" while it's new.
+ANOMALY_MIN_HISTORY_DAYS = int(os.getenv("ANOMALY_MIN_HISTORY_DAYS", "3"))
+DWELL_OUTLIER_MIN_SAMPLES = int(os.getenv("DWELL_OUTLIER_MIN_SAMPLES", "5"))
+
+# Sequence correlation: flag e.g. "vehicle arrival with occupant" when a
+# target-class track starts shortly after a vehicle-class track.
+SEQUENCE_TARGET_CLASS = os.getenv("SEQUENCE_TARGET_CLASS", "person").strip().lower()
+SEQUENCE_VEHICLE_CLASSES = [
+    c.strip().lower() for c in os.getenv("SEQUENCE_VEHICLE_CLASSES", "car,truck,motorcycle,bus").split(",") if c.strip()
+]
+SEQUENCE_WINDOW_SECONDS = float(os.getenv("SEQUENCE_WINDOW_SECONDS", "60"))
 
 # ============================================================================
 # Logging

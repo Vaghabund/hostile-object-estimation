@@ -7,13 +7,14 @@ import cv2
 import threading
 import numpy as np
 from collections import defaultdict
+from typing import Optional
 from PIL import Image
 import requests
 from telegram import Update
 from telegram.error import NetworkError
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
 from config.settings import (
-    TELEGRAM_BOT_TOKEN, 
+    TELEGRAM_BOT_TOKEN,
     AUTHORIZED_USER_ID,
     TELEGRAM_IMAGE_QUALITY,
     ENV_FILE,
@@ -23,7 +24,9 @@ from config.settings import (
     FACE_DETECTOR_MIN_SIZE,
     FRAME_SELECTION_FACE_WEIGHT,
     FRAME_SELECTION_SHARPNESS_WEIGHT,
-    FRAME_SELECTION_CONFIDENCE_WEIGHT
+    FRAME_SELECTION_CONFIDENCE_WEIGHT,
+    ALERT_DIGEST_ENABLED,
+    ALERT_DIGEST_INTERVAL_MINUTES,
 )
 from src.shared_state import SharedState
 from src.stats import StatsGenerator
@@ -34,6 +37,8 @@ from src.image_utils import (
 from src.runtime_settings import RuntimeSettings
 from src.frame_quality_scorer import FrameQualityScorer
 from src.env_utils import set_env_var
+from src.analysis import AnalysisEngine, TrackSummary
+from src.charts import render_hour_weekday_heatmap, render_spatial_heatmap
 
 logger = logging.getLogger(__name__)
 
@@ -62,14 +67,17 @@ class TelegramBot:
     Telegram bot for remote control and monitoring.
     Runs in its own thread/loop.
     """
-    def __init__(self, shared_state: SharedState, runtime_settings: RuntimeSettings):
+    def __init__(self, shared_state: SharedState, runtime_settings: RuntimeSettings,
+                 analysis_engine: AnalysisEngine):
         self.state = shared_state
         self.settings = runtime_settings
+        self.analysis = analysis_engine
         self.stats = StatsGenerator(shared_state)
         self._last_network_error_log = 0.0
         self._command_timestamps = defaultdict(float)
         self._rate_limit_seconds = 2.0
         self._bot = None  # Will be set after app is created
+        self._last_digest_ts = time.time()
 
         # Serializes access to the Haar cascade inside the scorer. Alert building now
         # runs in worker threads, and cv2.CascadeClassifier.detectMultiScale is not
@@ -119,6 +127,11 @@ class TelegramBot:
         self.app.add_handler(CommandHandler("summary", self.cmd_summary))
         self.app.add_handler(CommandHandler("reset", self.cmd_reset))
         self.app.add_handler(CommandHandler("help", self.cmd_help))
+
+        # Analytics commands
+        self.app.add_handler(CommandHandler("report", self.cmd_report))
+        self.app.add_handler(CommandHandler("heatmap", self.cmd_heatmap))
+        self.app.add_handler(CommandHandler("digest", self.cmd_digest))
         
         # Settings commands
         self.app.add_handler(CommandHandler("settings", self.cmd_settings))
@@ -186,6 +199,10 @@ class TelegramBot:
             "/status - System status overview\n"
             "/summary - Last 24h stats with visual summary\n"
             "/reset - Clear detection history\n\n"
+            "*Analytics:*\n"
+            "/report - Pattern-of-life report + activity heatmap\n"
+            "/heatmap [class] - Spatial heatmap of where activity happens\n"
+            "/digest - Trigger a digest of recent activity now\n\n"
             "*Settings:*\n"
             "/settings - View current settings\n"
             "/set <param> <value> - Change a setting\n"
@@ -330,6 +347,70 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Error creating visual summary: {e}", exc_info=True)
             # Don't fail the command, text summary was already sent
+
+    async def cmd_report(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Pattern-of-life report: today vs 7-day baseline, plus an activity heatmap."""
+        if not self._check_auth(update) or not update.message: return
+
+        if not self._check_rate_limit(update, "report"):
+            await update.message.reply_text("⏳ Please wait 2 seconds between report requests")
+            return
+
+        logger.info("Command /report received")
+        report_text = self.analysis.build_daily_report_text()
+        await update.message.reply_text(report_text, parse_mode="Markdown")
+
+        try:
+            matrix = self.analysis.get_heatmap_matrix(days=30)
+            image = render_hour_weekday_heatmap(matrix, title="Activity by Hour & Weekday (30d)")
+            bio = io.BytesIO()
+            image.save(bio, "PNG")
+            bio.seek(0)
+            await update.message.reply_photo(photo=bio, caption="📅 Activity heatmap (last 30 days)")
+        except Exception as e:
+            logger.error(f"Error rendering activity heatmap: {e}", exc_info=True)
+
+    async def cmd_heatmap(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Spatial heatmap of where detections happen, optionally filtered by class."""
+        if not self._check_auth(update) or not update.message: return
+
+        if not self._check_rate_limit(update, "heatmap"):
+            await update.message.reply_text("⏳ Please wait 2 seconds between heatmap requests")
+            return
+
+        logger.info("Command /heatmap received")
+        class_filter = context.args[0].lower() if context.args else None
+
+        points = self.analysis.get_spatial_points(hours=24 * 7, class_name=class_filter)
+        if not points:
+            label = f" for '{class_filter}'" if class_filter else ""
+            await update.message.reply_text(f"🚫 No detection data{label} in the last 7 days yet.")
+            return
+
+        background = self.state.get_latest_frame()
+        image = render_spatial_heatmap(points, background=background)
+        if image is None:
+            await update.message.reply_text("⚠️ Could not render heatmap.")
+            return
+
+        bio = io.BytesIO()
+        image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
+        bio.seek(0)
+        label = f" — {class_filter}" if class_filter else ""
+        await update.message.reply_photo(photo=bio, caption=f"🗺 Spatial heatmap (7d){label}")
+
+    async def cmd_digest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Trigger an on-demand digest of activity since the last scheduled one."""
+        if not self._check_auth(update) or not update.message: return
+
+        if not self._check_rate_limit(update, "digest"):
+            await update.message.reply_text("⏳ Please wait 2 seconds between digest requests")
+            return
+
+        logger.info("Command /digest received")
+        now = time.time()
+        text = self.analysis.build_digest_text(self._last_digest_ts, now)
+        await update.message.reply_text(text, parse_mode="Markdown")
 
     async def cmd_reset(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._check_auth(update) or not update.message: return
@@ -482,13 +563,31 @@ class TelegramBot:
         except Exception as e:
             logger.error(f"Failed to prepare detection alert: {e}")
 
-    def send_track_end_alert(self, track_id: int):
+    def handle_track_end(self, track_id: int, summary: Optional[TrackSummary]):
+        """
+        Decide whether an ended track warrants a photo alert, based on the
+        analysis engine's routing decision (priority class or anomaly).
+        Non-alerting tracks are still persisted (by analysis_engine.finalize_track,
+        already called by the main loop) — they just surface later in /report
+        and the periodic digest instead of pinging immediately.
+
+        Args:
+            track_id: The track identifier that just ended
+            summary: TrackSummary from AnalysisEngine.finalize_track, or None
+        """
+        if summary is None or not summary.alert_immediately:
+            self.state.clear_track_frames(track_id)
+            return
+        self.send_track_end_alert(track_id, summary)
+
+    def send_track_end_alert(self, track_id: int, summary: Optional[TrackSummary] = None):
         """
         Send a follow-up alert with the best frame from a complete detection sequence.
         Called when a track ends (person/object leaves).
-        
+
         Args:
             track_id: The track identifier that just ended
+            summary: Optional TrackSummary to enrich the caption (zone, direction, anomaly reason)
         """
         # In any path where we won't actually send, still release the track's
         # buffered frames so they don't accumulate in memory.
@@ -504,12 +603,12 @@ class TelegramBot:
         # Best-frame scoring + encoding is expensive; do it off the main loop.
         worker = threading.Thread(
             target=self._build_and_send_track_end_alert,
-            args=(track_id,),
+            args=(track_id, summary),
             daemon=True
         )
         worker.start()
 
-    def _build_and_send_track_end_alert(self, track_id: int):
+    def _build_and_send_track_end_alert(self, track_id: int, summary: Optional[TrackSummary] = None):
         """Worker-thread body for send_track_end_alert (see that method)."""
         try:
             best_frame, all_frames = self._get_best_frame_for_track(track_id)
@@ -517,33 +616,42 @@ class TelegramBot:
                 logger.warning(f"No frames to send for ended track {track_id}")
                 self.state.clear_track_frames(track_id)
                 return
-            
+
             # Get recent detections to associate with this track
             with self.state._lock:
                 recent_detections = list(self.state.detections)
-            
+
             # Find detections for this track
             track_detections = [d for d in recent_detections if d.track_id == track_id]
             if not track_detections:
                 logger.warning(f"No detections found for ended track {track_id}")
                 self.state.clear_track_frames(track_id)
                 return
-            
+
             # Get unique classes and average confidence for this track
             unique_classes = set(d.class_name for d in track_detections)
             avg_confidence = sum(d.confidence for d in track_detections) / len(track_detections)
-            
+
             # Draw bounding boxes on best frame (use track_detections for visual info)
             annotated_frame = draw_detections_on_frame(best_frame, track_detections)
-            
+
             # Create caption
             class_labels = ", ".join(sorted(unique_classes))
             caption = f"✅ Track Ended (Best Frame)\n\n" + f"Objects: {class_labels}\n" + f"Avg Confidence: {avg_confidence:.0%}"
-            
+            if summary is not None:
+                if summary.dwell_s >= 1:
+                    caption += f"\nDwell: {int(summary.dwell_s)}s"
+                if summary.zones:
+                    caption += f"\nZones: {summary.zones}"
+                if summary.direction and summary.direction != "stationary":
+                    caption += f"\nDirection: {summary.direction}"
+                if summary.reason:
+                    caption += f"\n{summary.reason}"
+
             # Convert to RGB and prepare image
             frame_rgb = cv2.cvtColor(annotated_frame, cv2.COLOR_BGR2RGB)
             image = Image.fromarray(frame_rgb)
-            
+
             bio = io.BytesIO()
             image.save(bio, "JPEG", quality=TELEGRAM_IMAGE_QUALITY, optimize=True)
             bio.seek(0)
@@ -554,7 +662,7 @@ class TelegramBot:
 
             # Clean up buffered frames
             self.state.clear_track_frames(track_id)
-            
+
         except Exception as e:
             logger.error(f"Failed to send track-end alert for track {track_id}: {e}")
             # Still clear the frames even on error
@@ -582,6 +690,45 @@ class TelegramBot:
             logger.error(f"Failed to send photo alert: {e}")
         except Exception as e:
             logger.error(f"Error sending photo alert: {e}")
+
+    def _send_text_sync(self, text: str):
+        """Send a plain text message outside the bot's event loop (blocking).
+        Used by the digest scheduler, which runs in its own background thread."""
+        if not AUTHORIZED_USER_ID:
+            return
+        try:
+            url = f"https://api.telegram.org/bot{TELEGRAM_BOT_TOKEN}/sendMessage"
+            data = {
+                "chat_id": int(AUTHORIZED_USER_ID),
+                "text": text,
+                "parse_mode": "Markdown",
+            }
+            response = _HTTP_SESSION.post(url, data=data, timeout=10)
+            response.raise_for_status()
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to send text message: {e}")
+        except Exception as e:
+            logger.error(f"Error sending text message: {e}")
+
+    def start_digest_scheduler(self):
+        """Start a background thread that periodically pushes an activity digest."""
+        if not ALERT_DIGEST_ENABLED:
+            return
+        self._last_digest_ts = time.time()
+        worker = threading.Thread(target=self._digest_loop, daemon=True)
+        worker.start()
+
+    def _digest_loop(self):
+        interval_s = max(60, ALERT_DIGEST_INTERVAL_MINUTES * 60)
+        while True:
+            time.sleep(interval_s)
+            try:
+                now = time.time()
+                text = self.analysis.build_digest_text(self._last_digest_ts, now)
+                self._last_digest_ts = now
+                self._send_text_sync(text)
+            except Exception as e:
+                logger.error(f"Digest scheduler error: {e}")
 
     def run(self):
         """Run the bot (blocking). Should be run in a separate thread."""

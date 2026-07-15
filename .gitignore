@@ -22,3 +22,9 @@ htmlcov/
 ~*
 .yolo/
 runs/
+
+# Analytics SQLite DB (generated at runtime, per-machine)
+data/
+*.db
+*.db-wal
+*.db-shm

@@ -10,6 +10,7 @@ Motion-triggered YOLO object detection with Telegram bot control. Optimized for 
 - **Telegram bot** for remote control & statistics
 - **In-memory logging** (no disk bloat, auto-purge after 1000 detections)
 - **Thread-safe** (detection + bot run in parallel)
+- **Pattern-of-life analytics** (SQLite-backed): anomaly-gated alerts, periodic digests, zone/direction tracking, and heatmap reports instead of a photo per detection
 
 ## Quick Start
 
@@ -230,6 +231,26 @@ AUTHORIZED_USER_ID=987654321
 
 ---
 
+## Analytics & Alerting
+
+Every confirmed detection and completed track is recorded to a local SQLite database (`data/analytics.db`, git-ignored). This is what powers alert routing and the analytics commands below — nothing here requires internet access beyond Telegram itself.
+
+**Why a photo doesn't arrive for every detection:** only classes in `ALERT_PRIORITY_CLASSES` (default: `person`) push an immediate Telegram alert. Everything else (cars, dogs, ...) is recorded silently and surfaces later in the periodic digest or `/report` — this is the fix for a channel getting spammed by routine traffic.
+
+Non-priority classes still escalate to an immediate alert when they're **anomalous**:
+- **Novel hour** — a class appears at an hour-of-day it's never been seen at before (needs `ANOMALY_MIN_HISTORY_DAYS` of history first, so it doesn't flag everything while the baseline is still empty).
+- **Outlier dwell** — a track lingers far longer than that class's usual dwell time (needs `DWELL_OUTLIER_MIN_SAMPLES` prior tracks of that class).
+- **Sequence correlation** — a `SEQUENCE_TARGET_CLASS` (default `person`) track starts within `SEQUENCE_WINDOW_SECONDS` of a `SEQUENCE_VEHICLE_CLASSES` track ("vehicle arrival with occupant").
+
+**New commands:**
+- `/report` — pattern-of-life summary (today vs 7-day baseline, busiest hour, zone activity) plus a 30-day hour×weekday activity heatmap image.
+- `/heatmap [class]` — spatial heatmap of *where* activity happens over the last 7 days, optionally filtered to one class (e.g. `/heatmap car`), blended over the latest camera frame.
+- `/digest` — preview the rollup of activity since the last scheduled digest, on demand.
+
+**Zones & direction:** set `ZONES` (e.g. `ZONES=gate:0,0,0.35,1;driveway:0.35,0,1,1`, normalized 0-1 rectangles) to name regions of the frame. Completed tracks then record which zones they touched and a direction (`gate → driveway`, or `left→right`/`stationary` if zones aren't configured), shown in track-end alert captions, `/report`, and the digest.
+
+---
+
 ## Troubleshooting
 
 ### Windows Issues
@@ -416,6 +437,18 @@ All settings are in [config/settings.py](config/settings.py) and can be overridd
 | FRAME_BUFFER_MAX | 30 | Max frames buffered per track before earliest are purged |
 | FRAME_SELECTION_MAX_SCORED | 18 | Max buffered frames the quality scorer evaluates |
 | FRAME_SELECTION_FACE_MAX_WIDTH | 320 | Downscale width (px) before the Haar cascade during scoring (0 = off) |
+| ANALYTICS_DB_PATH | data/analytics.db | SQLite database path for detection/track history |
+| ANALYTICS_RETENTION_DAYS | 30 | Days to keep raw detections (completed tracks are kept 4× longer) |
+| ZONES | (empty) | Named regions "name:x1,y1,x2,y2;..." (normalized 0-1) for zone/direction tracking |
+| ALERT_PRIORITY_CLASSES | person | Classes that always push an immediate Telegram alert |
+| ALERT_DIGEST_ENABLED | true | Send a periodic rollup of non-priority activity |
+| ALERT_DIGEST_INTERVAL_MINUTES | 60 | Minutes between scheduled digests |
+| ANOMALY_DETECTION_ENABLED | true | Promote non-priority classes to immediate alerts when they deviate from baseline |
+| ANOMALY_MIN_HISTORY_DAYS | 3 | Days of history required before novel-hour checks can fire |
+| DWELL_OUTLIER_MIN_SAMPLES | 5 | Prior tracks of a class required before dwell-outlier checks can fire |
+| SEQUENCE_TARGET_CLASS | person | Class whose arrival is checked against recent vehicle tracks |
+| SEQUENCE_VEHICLE_CLASSES | car,truck,motorcycle,bus | Classes treated as "vehicle" for sequence correlation |
+| SEQUENCE_WINDOW_SECONDS | 60 | Max seconds between a vehicle track and the target-class track it correlates with |
 | LOG_LEVEL | INFO | Python logging level |
 
 **Tip:** For faster startup, set `PREFER_EXTERNAL_CAMERA=false` and specify `CAMERA_ID` directly if you know which camera to use.
