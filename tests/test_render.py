@@ -1,0 +1,18 @@
+import numpy as np
+
+from src.render import render
+
+
+def test_render_has_requested_size_and_is_mono_when_asked():
+    frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    img = render(frame, (200, 100, 360, 300), 0.7, timestamp=0, size=(800, 480), mono=True)
+    assert img.size == (800, 480)
+    # Portrait area contains only pure black/white after dithering.
+    left = np.asarray(img.convert("L"))[:, :480]
+    assert set(np.unique(left)) <= {0, 255}
+
+
+def test_face_box_at_frame_edge_does_not_crash():
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    img = render(frame, (0, 0, 120, 140), 0.0, timestamp=0, size=(800, 480))
+    assert img.size == (800, 480)

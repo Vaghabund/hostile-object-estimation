@@ -1,461 +1,83 @@
-# Hostile Object Estimation System
+# Hostile Object Estimation v2
 
-Motion-triggered YOLO object detection with Telegram bot control. Optimized for old PC hardware with minimal CPU overhead.
+A hallway art piece. A camera watches the corridor; when someone walks past, a Raspberry Pi finds their face, reads how much they are frowning, and shows the most hostile moment of the visit on an e-ink display with a "hostility" percentage.
 
-## Features
+(v1, the YOLO + Telegram surveillance version, is tagged [`v1.0.0`](https://github.com/Vaghabund/hostile-object-estimation/releases/tag/v1.0.0).)
 
-- **Motion-triggered YOLO inference** (not continuous—saves CPU)
-- **Edge-based motion detection** (immune to light changes)
-- **Object tracking** (consistent IDs, no duplicate logging)
-- **Telegram bot** for remote control & statistics
-- **In-memory logging** (no disk bloat, auto-purge after 1000 detections)
-- **Thread-safe** (detection + bot run in parallel)
-- **Pattern-of-life analytics** (SQLite-backed): anomaly-gated alerts, periodic digests, zone/direction tracking, and heatmap reports instead of a photo per detection
-
-## Quick Start
-
-### Windows
-```cmd
-git clone https://github.com/Vaghabund/hostile-object-estimation.git
-cd hostile-object-estimation
-run.bat
 ```
-*No Git? Download the [ZIP from GitHub](https://github.com/Vaghabund/hostile-object-estimation/archive/refs/heads/main.zip), extract, and run `run.bat`*
-
-### Linux / Ubuntu
-```bash
-git clone https://github.com/Vaghabund/hostile-object-estimation.git
-cd hostile-object-estimation
-chmod +x deploy.sh
-./deploy.sh
-```
-*Don't have Git? The installer will detect this and show you how to install it.*
-
-**Note:** If the script prompts you to install system packages, copy-paste the command it provides, then run the installer again.
-
----
-
-## Installation
-
-### Windows Installation
-
-#### Prerequisites
-- Windows 10 or later
-- Python 3.7 or higher ([Download Python](https://www.python.org/downloads/))
-  - **Important:** Check "Add Python to PATH" during installation
-- Webcam or video source
-- Git (optional, for cloning)
-
-#### Installation Steps
-
-1. **Get the Repository**
-   - Download and extract the ZIP from GitHub, OR
-   - Clone with Git:
-     ```cmd
-     git clone https://github.com/Vaghabund/hostile-object-estimation.git
-     cd hostile-object-estimation
-     ```
-
-2. **Run the Installer**
-   - Double-click `run.bat`, OR
-   - Run in Command Prompt/PowerShell:
-     ```cmd
-     run.bat
-     ```
-
-3. **What Happens Automatically**
-   - ✅ Checks Python installation
-   - ✅ Creates `.env` configuration file
-   - ✅ Creates isolated virtual environment (`.venv`)
-   - ✅ Installs all required packages
-   - ✅ Starts the application
-
-4. **Configure Telegram Bot (Optional)**
-   - Run the guided setup: `python src\setup.py` (validates your token and auto-detects your user ID), OR
-   - Edit `.env` file manually with your Telegram credentials:
-     ```
-     TELEGRAM_BOT_TOKEN=your_bot_token_here
-     AUTHORIZED_USER_ID=your_telegram_user_id
-     ```
-   - See [Telegram Bot Setup](#telegram-bot-setup) for details
-
-#### Subsequent Runs
-- Simply run `run.bat` again
-- Dependencies are cached and only reinstalled if `requirements.txt` changes
-- To force clean reinstall: delete `.venv` folder and run `run.bat`
-
----
-
-### Linux / Ubuntu Installation
-
-#### Prerequisites
-- Ubuntu 18.04 or later (or compatible Linux distribution)
-- Terminal access with sudo privileges
-- Webcam or video source (for local installations)
-
-#### Installation Steps
-
-1. **Get the Repository**
-   ```bash
-   cd ~
-   git clone https://github.com/Vaghabund/hostile-object-estimation.git
-   cd hostile-object-estimation
-   ```
-
-2. **Run the Installer**
-   ```bash
-   chmod +x deploy.sh
-   ./deploy.sh
-   ```
-
-3. **Install System Dependencies (if prompted)**
-   - The installer will check for required system packages
-   - If any are missing, it will show you exactly what to install
-   - Simply copy-paste the command it provides, for example:
-     ```bash
-     sudo apt update && sudo apt install -y python3 python3-pip python3-venv git
-     ```
-   - Then run `./deploy.sh` again
-
-4. **Set Up the Telegram Bot (Optional)**
-   - On first run, an interactive wizard prompts for your bot token, validates it against Telegram, and auto-detects your user ID
-   - You can skip it and configure later — see [Telegram Bot Setup](#telegram-bot-setup)
-
-5. **What Happens Automatically**
-   - ✅ Checks system dependencies (Python, git, etc.)
-   - ✅ Verifies Python installation
-   - ✅ Creates `.env` from template
-   - ✅ Creates isolated virtual environment (`.venv`)
-   - ✅ Upgrades pip
-   - ✅ Installs all Python dependencies
-   - ✅ Starts the application
-
-#### Subsequent Runs
-```bash
-cd ~/hostile-object-estimation
-./deploy.sh
+USB camera -> motion gate -> face landmarks -> hostility score -> best frame of the visit -> e-ink
+             (cheap, always)  (only on motion)  (brows, frown, squint)                       (rate limited)
 ```
 
-Dependencies are cached and only reinstalled if needed.
+- **Low power.** The camera runs at 10 fps and a cheap edge-difference check watches it. The face model only wakes while something moves. E-ink holds its image with no power.
+- **Hostility** is a weighted sum of MediaPipe face blendshapes (brow down, mouth frown, eye squint, pressed lips, nose sneer), cancelled by smiling. Tune the weights in `src/hostility.py` and the overall scale with `HOSTILITY_GAIN`.
+- **One picture per visit.** Frames from a visit are compared, and the most hostile (sharpest on ties) wins.
+- **Easy on the panel.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer visit replaces one still waiting.
+- **Nothing is stored.** The only frame kept is the one on the screen (and `data/display.png` in preview mode).
 
----
-
-### Remote Server / Headless Installation
-
-For servers without a display or camera:
+## Quick start (any machine, no hardware needed)
 
 ```bash
-# Install with virtual framebuffer
-sudo apt install -y xvfb
-
-# Run with virtual display
-xvfb-run -a ./deploy.sh
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+python -m src.main --image some_portrait.jpg   # writes data/display.png
+python -m src.main                              # watch the webcam; preview PNG updates
+pytest
 ```
 
-Or modify configuration to disable preview:
+The face model (about 4 MB) is downloaded on first run into `models/`. On Linux, MediaPipe needs `libegl1` and `libgles2` (`sudo apt install libegl1 libgles2`).
+
+## On the Pi
+
+Use **64-bit** Raspberry Pi OS, since MediaPipe has no 32-bit wheels. A Pi 4 is the safe choice; a Pi Zero 2 W is lower power but untested here.
+
 ```bash
-nano .env
-# Add: SHOW_PREVIEW=false
-```
-
----
-
-### Manual Installation (Advanced)
-
-If you prefer manual control:
-
-**Windows:**
-```cmd
-cd hostile-object-estimation
-py -m venv .venv
-.venv\Scripts\activate
-pip install --upgrade pip
+sudo apt install python3-venv libegl1 libgles2 libgl1
+git clone <this repo> ~/hostile-object-estimation && cd ~/hostile-object-estimation
+python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-copy .env.example .env
-notepad .env
-python src/main.py
+cp .env.example .env     # pick your display backend
+sudo cp deploy/hostile.service /etc/systemd/system/   # edit User/paths first
+sudo systemctl enable --now hostile
 ```
 
-**Linux:**
-```bash
-cd hostile-object-estimation
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
-cp .env.example .env
-nano .env
-python3 src/main.py
-```
+### Displays
 
----
+Set `DISPLAY_BACKEND` in `.env`:
 
-## Telegram Bot Setup
+| Backend | Hardware | Extra install |
+|---|---|---|
+| `preview` | none (writes a PNG) | |
+| `inky` | Pimoroni Inky Impression/wHAT, auto-detected | `pip install inky[rpi]` |
+| `waveshare` | Waveshare black/white panel, `WAVESHARE_MODEL=epd7in5_V2` | Waveshare's `waveshare_epd` library |
 
-The Telegram bot is **optional** — motion detection and logging run fine without it. When configured, it lets you control the system remotely and receive detection alerts. The bot needs two values in `.env`:
-
-- `TELEGRAM_BOT_TOKEN` — issued by Telegram's [@BotFather](https://t.me/BotFather)
-- `AUTHORIZED_USER_ID` — your numeric Telegram user ID (this account also receives the alerts)
-
-### Interactive setup (recommended)
-
-On Linux, the **first** `./deploy.sh` run launches this wizard automatically. You can also re-run it any time:
-
-```bash
-./deploy.sh --setup
-```
-
-Or run it directly — it uses only the Python standard library, so it works on a fresh clone before any packages are installed, on both Linux and Windows:
-
-```bash
-python3 src/setup.py      # Windows: python src\setup.py
-```
-
-The wizard will:
-
-1. **Create a bot token.** Open Telegram, message [@BotFather](https://t.me/BotFather), send `/newbot`, follow the prompts, and copy the token it gives you. Paste it when asked — the wizard validates it against Telegram and confirms your bot's `@username`.
-2. **Detect your user ID automatically.** Send any message (e.g. `/start`) to your new bot, then press Enter. The wizard reads that message back and fills in your numeric user ID for you (with a manual-entry fallback if it can't).
-
-Both values are written to `.env` automatically. Leave the token blank to skip — the bot stays disabled and detection still runs.
-
-### Manual configuration
-
-Prefer to do it by hand? Get the token from [@BotFather](https://t.me/BotFather) and your numeric ID from [@userinfobot](https://t.me/userinfobot), then edit `.env`:
-
-```
-TELEGRAM_BOT_TOKEN=123456789:AA...your_token...
-AUTHORIZED_USER_ID=987654321
-```
-
-> **Windows note:** `run.bat` creates `.env` but does not launch the wizard automatically. Run `python src\setup.py` yourself, or edit `.env` by hand.
-
----
-
-## Analytics & Alerting
-
-Every confirmed detection and completed track is recorded to a local SQLite database (`data/analytics.db`, git-ignored). This is what powers alert routing and the analytics commands below — nothing here requires internet access beyond Telegram itself.
-
-**Why a photo doesn't arrive for every detection:** only classes in `ALERT_PRIORITY_CLASSES` (default: `person`) push an immediate Telegram alert. Everything else (cars, dogs, ...) is recorded silently and surfaces later in the periodic digest or `/report` — this is the fix for a channel getting spammed by routine traffic.
-
-Non-priority classes still escalate to an immediate alert when they're **anomalous**:
-- **Novel hour** — a class appears at an hour-of-day it's never been seen at before (needs `ANOMALY_MIN_HISTORY_DAYS` of history first, so it doesn't flag everything while the baseline is still empty).
-- **Outlier dwell** — a track lingers far longer than that class's usual dwell time (needs `DWELL_OUTLIER_MIN_SAMPLES` prior tracks of that class).
-- **Sequence correlation** — a `SEQUENCE_TARGET_CLASS` (default `person`) track starts within `SEQUENCE_WINDOW_SECONDS` of a `SEQUENCE_VEHICLE_CLASSES` track ("vehicle arrival with occupant").
-
-**New commands:**
-- `/report` — pattern-of-life summary (today vs 7-day baseline, busiest hour, zone activity) plus a 30-day hour×weekday activity heatmap image.
-- `/heatmap [class]` — spatial heatmap of *where* activity happens over the last 7 days, optionally filtered to one class (e.g. `/heatmap car`), blended over the latest camera frame.
-- `/digest` — preview the rollup of activity since the last scheduled digest, on demand.
-
-**Zones & direction:** set `ZONES` (e.g. `ZONES=gate:0,0,0.35,1;driveway:0.35,0,1,1`, normalized 0-1 rectangles) to name regions of the frame. Completed tracks then record which zones they touched and a direction (`gate → driveway`, or `left→right`/`stationary` if zones aren't configured), shown in track-end alert captions, `/report`, and the digest.
-
----
-
-## Troubleshooting
-
-### Windows Issues
-
-**"Python is not installed or not in PATH"**
-- Install Python from [python.org](https://www.python.org/downloads/)
-- During installation, CHECK the box "Add Python to PATH"
-- Restart your terminal after installation
-
-**"Failed to create virtual environment"**
-- Ensure you have enough disk space (need ~500MB for dependencies)
-- Try running `run.bat` as Administrator
-- Temporarily disable antivirus if it's blocking file creation
-
-**Dependencies fail to install**
-- Check internet connection
-- Try running as Administrator
-- Delete `.venv` folder and run `run.bat` again
-
-### Linux Issues
-
-**Script says packages are missing**
-- Simply copy-paste the command the script provides
-- It will look like: `sudo apt update && sudo apt install -y python3 python3-pip python3-venv git`
-- After installation completes, run `./deploy.sh` again
-
-**"python3: command not found"**
-```bash
-sudo apt update
-sudo apt install -y python3 python3-pip python3-venv
-```
-
-**"python3-venv is not available"**
-```bash
-sudo apt install -y python3-venv
-```
-
-**Camera permission denied / Failed to open camera**
-This is a very common issue. The user needs to be in the `video` group:
-```bash
-# Add user to video group
-sudo usermod -a -G video $USER
-
-# Verify the group was added
-groups $USER
-```
-
-You should see `video` in the list.
-
-**IMPORTANT: Log out and log back in** for changes to take effect:
-- If using the system directly: Log out and log back in to your desktop session
-- If using SSH (remote connection): Type `exit`, then reconnect with `ssh user@hostname`
-
-After logging back in, verify the group is active:
-```bash
-groups
-```
-
-You should now see `video` in your active groups. Then run the application again.
-
-**Check which video devices are available:**
-```bash
-# List video devices
-ls -la /dev/video*
-
-# Install v4l-utils for more details (optional)
-sudo apt install -y v4l-utils
-v4l2-ctl --list-devices
-```
-
-**OpenCV errors or slow performance** (optional optimization)
-```bash
-# Install system OpenCV libraries for better performance
-sudo apt install -y python3-opencv libglib2.0-0 libsm6 libxext6 libxrender-dev libgomp1
-```
-Note: The script installs opencv-python via pip, so this is optional.
-
-**"libgl1-mesa-glx has no installation candidate"** (newer Ubuntu)
-```bash
-# Use libgl1 instead
-sudo apt install -y libgl1 libglib2.0-0
-```
-
-### General Issues
-
-**Corrupted virtual environment**
-- Delete `.venv` folder
-- Run installation script again (`run.bat` or `./deploy.sh`)
-
-**Application exits immediately**
-- Check if webcam is connected and accessible
-- Review error messages in the terminal
-- Check `.env` configuration
-
-**Package installation very slow**
-- First installation downloads ~500MB of packages
-- Be patient, especially with OpenCV and Ultralytics
-- Subsequent runs are much faster (cached)
-
----
-
-## Updating
-
-To update to the latest version:
-
-**Windows:**
-```cmd
-git pull
-run.bat
-```
-
-**Linux:**
-```bash
-git pull
-./deploy.sh
-```
-
-The scripts automatically detect changes to `requirements.txt` and update dependencies.
-
-## Project Structure
-
-```
-hostile-object-estimation/
-├── config/
-│   ├── __init__.py
-│   └── settings.py          # Central configuration
-├── src/
-│   ├── camera.py            # Frame capture
-│   ├── detection_stabilizer.py  # Multi-frame detection filtering
-│   ├── image_utils.py       # Bounding-box drawing & collage helpers
-│   ├── main.py              # Main loop
-│   ├── motion_detector.py   # Motion logic
-│   ├── runtime_settings.py  # Live-adjustable settings (via Telegram)
-│   ├── shared_state.py      # Thread-safe data
-│   ├── stats.py             # Statistics generator
-│   ├── telegram_bot.py      # Telegram interface
-│   └── yolo_detector.py     # YOLO + Tracking
-├── run.bat                  # Windows launcher
-├── deploy.sh                # Linux launcher
-├── requirements.txt         # Dependencies
-└── .env                     # Secrets (git-ignored)
-```
-
-## Development Phases
-
-1. **Phase 1 (Complete):** Project setup + frame capture ✅
-2. **Phase 2 (Complete):** Motion detection (edge detection + contours) ✅
-3. **Phase 3 (Complete):** YOLO inference + object tracking ✅
-4. **Phase 4 (Complete):** In-memory logging & statistics ✅
-5. **Phase 5 (Complete):** Telegram bot (commands, snapshots, summaries) ✅
-6. **Phase 6 (Complete):** Testing & deployment prep ✅
+The `preview` backend and the pipeline are tested. The `inky` and `waveshare` backends are thin wrappers written against those libraries' documented APIs and have **not been run on real hardware yet**, so expect to adjust them when the panel arrives.
 
 ## Configuration
 
-All settings are in [config/settings.py](config/settings.py) and can be overridden via `.env`:
+Everything is optional; see `.env.example`. The settings you will most likely touch:
 
-| Setting | Default | Description |
-|---------|---------|-------------|
-| CAMERA_ID | 0 | OpenCV camera index |
-| PREFER_EXTERNAL_CAMERA | true | Auto-detect USB cameras (set to false to skip probing) |
-| CAMERA_PROBE_LIMIT | 3 | Max camera indices to check during auto-detection |
-| CAMERA_RESOLUTION | (640, 480) | Frame size (width, height) |
-| CAMERA_FPS | 30 | Target frames per second |
-| MOTION_CANNY_LOW | 50 | Canny edge detection threshold (low) |
-| MOTION_CANNY_HIGH | 150 | Canny edge detection threshold (high) |
-| MOTION_PIXEL_THRESHOLD | 0.5 | % of pixels that must change to trigger motion |
-| MOTION_COOLDOWN | 2.0 | Seconds between motion detections |
-| MOTION_DOWNSCALE | 0.5 | Downscale factor before motion detection (0.5 ≈ 4× less CPU; sensitivity unchanged) |
-| YOLO_CONFIDENCE | 0.5 | Min detection confidence (0.0-1.0) |
-| YOLO_MODEL | yolov8n | YOLOv8 model size (n=tiny, s=small, m=medium) |
-| CPU_THREADS | all cores | Cap OpenCV + PyTorch worker threads; set lower (e.g. 2) on weak/old CPUs |
-| DETECTION_STABILITY_FRAMES | 2 | Min consecutive frames before logging detection |
-| DETECTION_STABILITY_MAX_MISSES | 2 | Frames a track may be missing before it is dropped |
-| DETECTION_HISTORY_MAXLEN | 500 | Max in-memory detections (auto-purge) |
-| TELEGRAM_IMAGE_QUALITY | 60 | JPEG quality for Telegram (0-100) |
-| FRAME_SELECTION_ENABLED | true | Pick the sharpest/clearest frame to reduce blur in sent images |
-| FRAME_SELECTION_ALERTS | true | Apply best-frame selection to detection alerts |
-| FRAME_SELECTION_SCAN | true | Apply best-frame selection to the /scan command |
-| FRAME_SELECTION_SUMMARY | true | Apply best-frame selection to /summary |
-| FACE_DETECTOR_TYPE | cascade | Face detector used for scoring (OpenCV Haar cascade) |
-| FRAME_SCORE_FACE_WEIGHT | 1.0 | Best-frame scoring weight — face presence (highest priority) |
-| FRAME_SCORE_SHARPNESS_WEIGHT | 0.8 | Best-frame scoring weight — image sharpness |
-| FRAME_SCORE_CONFIDENCE_WEIGHT | 0.5 | Best-frame scoring weight — detection confidence |
-| FRAME_BUFFER_MAX | 30 | Max frames buffered per track before earliest are purged |
-| FRAME_SELECTION_MAX_SCORED | 18 | Max buffered frames the quality scorer evaluates |
-| FRAME_SELECTION_FACE_MAX_WIDTH | 320 | Downscale width (px) before the Haar cascade during scoring (0 = off) |
-| ANALYTICS_DB_PATH | data/analytics.db | SQLite database path for detection/track history |
-| ANALYTICS_RETENTION_DAYS | 30 | Days to keep raw detections (completed tracks are kept 4× longer) |
-| ZONES | (empty) | Named regions "name:x1,y1,x2,y2;..." (normalized 0-1) for zone/direction tracking |
-| ALERT_PRIORITY_CLASSES | person | Classes that always push an immediate Telegram alert |
-| ALERT_DIGEST_ENABLED | true | Send a periodic rollup of non-priority activity |
-| ALERT_DIGEST_INTERVAL_MINUTES | 60 | Minutes between scheduled digests |
-| ANOMALY_DETECTION_ENABLED | true | Promote non-priority classes to immediate alerts when they deviate from baseline |
-| ANOMALY_MIN_HISTORY_DAYS | 3 | Days of history required before novel-hour checks can fire |
-| DWELL_OUTLIER_MIN_SAMPLES | 5 | Prior tracks of a class required before dwell-outlier checks can fire |
-| SEQUENCE_TARGET_CLASS | person | Class whose arrival is checked against recent vehicle tracks |
-| SEQUENCE_VEHICLE_CLASSES | car,truck,motorcycle,bus | Classes treated as "vehicle" for sequence correlation |
-| SEQUENCE_WINDOW_SECONDS | 60 | Max seconds between a vehicle track and the target-class track it correlates with |
-| LOG_LEVEL | INFO | Python logging level |
+| Variable | Default | |
+|---|---|---|
+| `HOSTILITY_GAIN` | 2.0 | Raise if scowls read too low |
+| `FACE_MIN_WIDTH_PX` | 80 | Ignore faces smaller (further away) than this |
+| `MOTION_PIXEL_THRESHOLD` | 0.5 | % of edges that must change to count as motion |
+| `MIN_REFRESH_INTERVAL_SECONDS` | 180 | Minimum time between e-ink redraws |
+| `BURST_GAP_SECONDS` | 2.5 | Quiet time that ends a visit |
 
-**Tip:** For faster startup, set `PREFER_EXTERNAL_CAMERA=false` and specify `CAMERA_ID` directly if you know which camera to use.
+## Layout
 
-## Notes
+```
+src/main.py            capture loop and wiring
+src/motion_detector.py cheap motion gate
+src/faces.py           MediaPipe face landmarks + blendshapes
+src/hostility.py       blendshapes -> 0..1 score
+src/burst.py           best frame of a visit
+src/render.py          composes the e-ink picture
+src/display/           preview, inky, waveshare backends
+deploy/hostile.service systemd unit
+```
 
-- Line endings: `.gitattributes` ensures CRLF (Windows) → LF (Ubuntu) on git push
-- Dependencies: All pinned to specific versions for reproducibility
-- Threading: Detection + Telegram bot use shared thread-safe state (Phase 3+)
-- No database: In-memory deque is sufficient; summaries are temporal
+## Ideas for later
+
+Telegram overview and health checks (v1's bot is in the `v1.0.0` tag to crib from), a "no one has frowned today" screen, and a sleep schedule to blank the panel at night.

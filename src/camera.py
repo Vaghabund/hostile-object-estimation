@@ -1,12 +1,8 @@
 import cv2
 import logging
+import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
-from pathlib import Path
-import sys
-
-# Add parent directory to path for imports
-sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from config.settings import (
     CAMERA_ID,
@@ -59,7 +55,6 @@ class FrameCapture:
             self.camera_id = selected_camera_id
             logger.info(f"Opening camera {self.camera_id}...")
             # Use DirectShow backend on Windows for better compatibility
-            import sys
             backend = cv2.CAP_DSHOW if sys.platform == 'win32' else cv2.CAP_ANY
             self.cap = cv2.VideoCapture(self.camera_id, backend)
             if not self.cap.isOpened():
@@ -72,7 +67,7 @@ class FrameCapture:
             # Set FPS
             self.cap.set(cv2.CAP_PROP_FPS, self.fps)
 
-            # Keep only the newest frame in the driver buffer. While YOLO inference
+            # Keep only the newest frame in the driver buffer. While face analysis
             # runs, no reads happen; without this the driver queues stale frames and
             # every subsequent read lags behind real time.
             self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
@@ -134,7 +129,6 @@ class FrameCapture:
     @staticmethod
     def _probe_camera(index):
         # Use DirectShow backend on Windows for faster detection
-        import sys
         backend = cv2.CAP_DSHOW if sys.platform == 'win32' else cv2.CAP_ANY
         cap = cv2.VideoCapture(index, backend)
         try:

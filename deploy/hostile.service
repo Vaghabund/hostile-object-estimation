@@ -1,0 +1,16 @@
+[Unit]
+Description=Hallway hostility meter
+After=network.target
+
+[Service]
+# Adjust User and the paths to match your install.
+User=pi
+WorkingDirectory=/home/pi/hostile-object-estimation
+ExecStart=/home/pi/hostile-object-estimation/.venv/bin/python -m src.main
+Restart=always
+RestartSec=10
+# Keep the always-on process polite on a small board.
+Nice=10
+
+[Install]
+WantedBy=multi-user.target
