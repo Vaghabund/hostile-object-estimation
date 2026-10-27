@@ -79,8 +79,10 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     if mood is not None:
         _draw_barometer(canvas, draw, x, height - pad - 116, panel_w, *mood)
 
-    stamp = datetime.fromtimestamp(timestamp).strftime("%a %d %b  %H:%M")
-    draw.text((x + panel_w, height - pad - 24), stamp, fill="black", font=_font(24), anchor="ra")
+    when = datetime.fromtimestamp(timestamp)
+    foot_y, foot_font = height - pad - 24, _font(24)
+    draw.text((x, foot_y), when.strftime("%a %d %b"), fill="black", font=foot_font)
+    draw.text((x + panel_w, foot_y), when.strftime("%H:%M"), fill="black", font=foot_font, anchor="ra")
     return canvas
 
 
