@@ -14,6 +14,14 @@ def _font(size):
     return ImageFont.load_default(size=size)
 
 
+def _fit_font(draw, text, max_size, max_width):
+    """Largest font up to max_size whose text fits max_width."""
+    size = max_size
+    while size > 12 and draw.textlength(text, font=_font(size)) > max_width:
+        size -= 2
+    return _font(size)
+
+
 def _label(score):
     if score < 0.15:
         return "serene"
@@ -63,9 +71,10 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     pad = 28
     x = height + pad
     panel_w = width - x - pad
-    draw.text((x, pad), "HOSTILITY", fill="black", font=_font(36))
-    draw.text((x, pad + 50), f"{round(hostility * 100)}%", fill="black", font=_font(110))
-    draw.text((x, pad + 190), _label(hostility), fill="black", font=_font(40))
+    draw.text((x, pad), "HOSTILITY", fill="black", font=_font(24))
+    draw.text((x, pad + 28), f"{round(hostility * 100)}%", fill="black", font=_font(120))
+    label = _label(hostility)
+    draw.text((x, pad + 172), label, fill="black", font=_fit_font(draw, label, 64, panel_w))
 
     bar_y = pad + 260
     draw.rectangle([x, bar_y, x + panel_w, bar_y + 28], outline="black", width=3)
@@ -81,7 +90,7 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     return canvas
 
 
-BAROMETER_STRIP_TOP = 30     # offsets from the barometer's y
+BAROMETER_STRIP_TOP = 34     # offsets from the barometer's y
 BAROMETER_STRIP_HEIGHT = 26
 _END_LABEL_CLEARANCE = 60    # hide an end label when the marker is this close to it
 
@@ -94,8 +103,8 @@ def _dither_strip(w, h):
 
 def _draw_barometer(canvas, draw, x, y, w, average, visits):
     """A dithered calm (white) to hostile (black) spectrum with a marker at the 24 h average."""
-    draw.text((x, y), "MOOD, LAST 24H", fill="black", font=_font(22))
-    draw.text((x + w, y), f"{round(average * 100)}%", fill="black", font=_font(22), anchor="ra")
+    draw.text((x, y), "LAST 24H", fill="black", font=_font(26))
+    draw.text((x + w, y), f"{round(average * 100)}%", fill="black", font=_font(26), anchor="ra")
 
     top = y + BAROMETER_STRIP_TOP
     bottom = top + BAROMETER_STRIP_HEIGHT
