@@ -44,3 +44,12 @@ def test_stores_a_copy_of_the_frame():
     b.add(f, face(0.5), now=0.0)
     f[:] = 0
     assert b.poll(now=5.0).frame[0, 0, 0] == 7
+
+
+def test_reports_mean_hostility_of_the_visit_and_resets():
+    b = BurstSelector(gap_seconds=1.0)
+    b.add(frame(), face(0.2), now=0.0)
+    b.add(frame(), face(0.8), now=0.1)
+    assert abs(b.poll(now=5.0).mean_hostility - 0.5) < 1e-9
+    b.add(frame(), face(0.4), now=10.0)
+    assert abs(b.poll(now=15.0).mean_hostility - 0.4) < 1e-9

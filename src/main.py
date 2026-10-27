@@ -17,16 +17,18 @@ from src.burst import BurstSelector
 from src.camera import FrameCapture
 from src.display import get_display
 from src.faces import FaceAnalyzer
+from src.mood import MoodLog
 from src.motion_detector import MotionDetector
 from src.render import render
 
 logger = logging.getLogger("hostile")
 
 
-def publish(display, capture):
+def publish(display, capture, mood):
+    """`mood` is (average hostility, visit count) for the barometer."""
     image = render(
         capture.frame, capture.face.box, capture.face.hostility, capture.timestamp,
-        size=display.size or DISPLAY_SIZE, mono=display.mono,
+        size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood,
     )
     display.show(image)
     logger.info("Showing face with hostility %.0f%%", capture.face.hostility * 100)
@@ -46,7 +48,12 @@ def run_once(image_path):
     burst = BurstSelector(gap_seconds=0)
     burst.add(frame, face, now=0.0)
     display = get_display()
-    publish(display, burst.poll(now=0.0))
+    capture = burst.poll(now=0.0)
+    # Read-only: a test image must not pollute the real mood log. Show the
+    # existing average, or just this image's score if the log is empty.
+    mood = MoodLog()
+    average = mood.average() or (capture.mean_hostility, 1)
+    publish(display, capture, average)
     display.close()
 
 
@@ -66,6 +73,7 @@ def run_forever():
     display = get_display()
     motion = MotionDetector()
     burst = BurstSelector(BURST_GAP_SECONDS)
+    mood = MoodLog()
 
     active_until = 0.0
     pending = None
@@ -95,10 +103,11 @@ def run_forever():
 
             finished = burst.poll(now)
             if finished is not None:
+                mood.record(finished.mean_hostility, finished.timestamp)  # every visit counts, shown or not
                 pending = finished  # a newer visit replaces one still waiting out the refresh limit
 
             if pending is not None and now - last_refresh >= MIN_REFRESH_INTERVAL_SECONDS:
-                publish(display, pending)
+                publish(display, pending, mood.average())
                 pending = None
                 last_refresh = now
     finally:

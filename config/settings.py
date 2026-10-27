@@ -56,6 +56,12 @@ BURST_GAP_SECONDS = float(os.getenv("BURST_GAP_SECONDS", "2.5"))
 MIN_REFRESH_INTERVAL_SECONDS = float(os.getenv("MIN_REFRESH_INTERVAL_SECONDS", "180"))
 
 # ============================================================================
+# Mood barometer (average hostility of recent visits; numbers only, no images)
+# ============================================================================
+MOOD_LOG_PATH = _path("MOOD_LOG_PATH", "data/moods.jsonl")
+MOOD_WINDOW_HOURS = float(os.getenv("MOOD_WINDOW_HOURS", "24"))
+
+# ============================================================================
 # Display
 # ============================================================================
 DISPLAY_BACKEND = os.getenv("DISPLAY_BACKEND", "preview")  # preview | inky | waveshare

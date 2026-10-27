@@ -37,10 +37,13 @@ def _square_crop(frame, box):
     return frame[top:top + side, left:left + side]
 
 
-def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True):
+def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, mood=None):
     """
     Return an RGB PIL image of `size`: the face on the left as a grayscale
     portrait, the hostility reading on the right.
+
+    `mood` is (average hostility, visit count) over the last 24 h, drawn as a
+    barometer above the date; None leaves it out.
 
     With mono=True the portrait is Floyd-Steinberg dithered here (text stays
     crisp); colour panels get the plain grayscale and do their own palette work.
@@ -69,6 +72,26 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True):
     if fill_w:
         draw.rectangle([x, bar_y, x + fill_w, bar_y + 28], fill="black")
 
+    if mood is not None:
+        _draw_barometer(draw, x, height - pad - 116, panel_w, *mood)
+
     stamp = datetime.fromtimestamp(timestamp).strftime("%a %d %b  %H:%M")
-    draw.text((x, height - pad - 28), stamp, fill="black", font=_font(28))
+    draw.text((x, height - pad - 24), stamp, fill="black", font=_font(24))
     return canvas
+
+
+def _draw_barometer(draw, x, y, w, average, visits):
+    """A calm-to-hostile scale with a marker at the 24 h average."""
+    draw.text((x, y), "MOOD, LAST 24H", fill="black", font=_font(22))
+    draw.text(
+        (x + w, y), f"{round(average * 100)}%", fill="black", font=_font(22), anchor="ra",
+    )
+    line_y = y + 40
+    draw.line([x, line_y, x + w, line_y], fill="black", width=3)
+    for i in range(11):  # a tick every 10%, taller at 0, 50 and 100
+        tick_x = x + round(w * i / 10)
+        draw.line([tick_x, line_y - (12 if i % 5 == 0 else 6), tick_x, line_y], fill="black", width=2)
+    mx = x + round(w * average)
+    draw.polygon([(mx, line_y + 2), (mx - 9, line_y + 18), (mx + 9, line_y + 18)], fill="black")
+    draw.text((x, line_y + 22), "calm", fill="black", font=_font(18))
+    draw.text((x + w, line_y + 22), "hostile", fill="black", font=_font(18), anchor="ra")

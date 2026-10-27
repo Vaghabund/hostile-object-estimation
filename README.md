@@ -13,7 +13,8 @@ USB camera -> motion gate -> face landmarks -> hostility score -> best frame of 
 - **Hostility** is a weighted sum of MediaPipe face blendshapes (brow down, mouth frown, eye squint, pressed lips, nose sneer), cancelled by smiling. Tune the weights in `src/hostility.py` and the overall scale with `HOSTILITY_GAIN`.
 - **One picture per visit.** Frames from a visit are compared, and the most hostile (sharpest on ties) wins.
 - **Easy on the panel.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer visit replaces one still waiting.
-- **Nothing is stored.** The only frame kept is the one on the screen (and `data/display.png` in preview mode).
+- **Mood barometer.** Above the date, a scale shows the average hostility of every visit in the last 24 hours (`MOOD_WINDOW_HOURS`). Each visit counts once, at its average over the whole walk-past, whether or not the screen was refreshed for it. The numbers live in `data/moods.jsonl` and survive restarts.
+- **No photos are stored.** The only frame kept is the one on the screen (and `data/display.png` in preview mode). The mood log is just timestamps and scores.
 
 ## Quick start (any machine, no hardware needed)
 
@@ -73,6 +74,7 @@ src/motion_detector.py cheap motion gate
 src/faces.py           MediaPipe face landmarks + blendshapes
 src/hostility.py       blendshapes -> 0..1 score
 src/burst.py           best frame of a visit
+src/mood.py            24 h rolling mood average
 src/render.py          composes the e-ink picture
 src/display/           preview, inky, waveshare backends
 deploy/hostile.service systemd unit

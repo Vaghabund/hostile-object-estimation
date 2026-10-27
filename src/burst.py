@@ -11,6 +11,7 @@ class Capture:
     frame: Any
     face: FaceResult
     timestamp: float  # wall clock, for the caption
+    mean_hostility: float = 0.0  # average over the whole visit
 
 
 class BurstSelector:
@@ -24,6 +25,8 @@ class BurstSelector:
         self.gap_seconds = gap_seconds
         self._best: Optional[Capture] = None
         self._last_seen = 0.0
+        self._sum = 0.0
+        self._count = 0
 
     @property
     def in_progress(self) -> bool:
@@ -32,6 +35,8 @@ class BurstSelector:
     def add(self, frame, face: FaceResult, now: float) -> None:
         """`now` is a monotonic clock reading."""
         self._last_seen = now
+        self._sum += face.hostility
+        self._count += 1
         # Copy: the capture loop may reuse the buffer.
         candidate = Capture(frame.copy(), face, time.time())
         best = self._best
@@ -46,5 +51,7 @@ class BurstSelector:
         """Return the finished visit's best capture once the gap has elapsed, else None."""
         if self._best is not None and now - self._last_seen >= self.gap_seconds:
             done, self._best = self._best, None
+            done.mean_hostility = self._sum / self._count
+            self._sum, self._count = 0.0, 0
             return done
         return None

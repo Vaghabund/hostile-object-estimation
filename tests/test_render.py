@@ -16,3 +16,11 @@ def test_face_box_at_frame_edge_does_not_crash():
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     img = render(frame, (0, 0, 120, 140), 0.0, timestamp=0, size=(800, 480))
     assert img.size == (800, 480)
+
+
+def test_barometer_changes_the_picture():
+    frame = np.zeros((480, 640, 3), dtype=np.uint8)
+    args = (frame, (200, 100, 360, 300), 0.5)
+    without = render(*args, timestamp=0, mood=None)
+    with_mood = render(*args, timestamp=0, mood=(0.3, 12))
+    assert np.any(np.asarray(without) != np.asarray(with_mood))
