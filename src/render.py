@@ -2,6 +2,7 @@
 from datetime import datetime
 
 import cv2
+import numpy as np
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from config.settings import DISPLAY_SIZE
@@ -73,25 +74,39 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
         draw.rectangle([x, bar_y, x + fill_w, bar_y + 28], fill="black")
 
     if mood is not None:
-        _draw_barometer(draw, x, height - pad - 116, panel_w, *mood)
+        _draw_barometer(canvas, draw, x, height - pad - 116, panel_w, *mood)
 
     stamp = datetime.fromtimestamp(timestamp).strftime("%a %d %b  %H:%M")
     draw.text((x, height - pad - 24), stamp, fill="black", font=_font(24))
     return canvas
 
 
-def _draw_barometer(draw, x, y, w, average, visits):
-    """A calm-to-hostile scale with a marker at the 24 h average."""
+BAROMETER_STRIP_TOP = 30     # offsets from the barometer's y
+BAROMETER_STRIP_HEIGHT = 26
+_END_LABEL_CLEARANCE = 60    # hide an end label when the marker is this close to it
+
+
+def _dither_strip(w, h):
+    """White-to-black ramp, Floyd-Steinberg dithered to pure black/white pixels."""
+    ramp = np.tile(np.linspace(255, 0, w, dtype=np.float32), (h, 1))
+    return Image.fromarray(ramp.astype(np.uint8), "L").convert("1").convert("RGB")
+
+
+def _draw_barometer(canvas, draw, x, y, w, average, visits):
+    """A dithered calm (white) to hostile (black) spectrum with a marker at the 24 h average."""
     draw.text((x, y), "MOOD, LAST 24H", fill="black", font=_font(22))
-    draw.text(
-        (x + w, y), f"{round(average * 100)}%", fill="black", font=_font(22), anchor="ra",
-    )
-    line_y = y + 40
-    draw.line([x, line_y, x + w, line_y], fill="black", width=3)
-    for i in range(11):  # a tick every 10%, taller at 0, 50 and 100
-        tick_x = x + round(w * i / 10)
-        draw.line([tick_x, line_y - (12 if i % 5 == 0 else 6), tick_x, line_y], fill="black", width=2)
+    draw.text((x + w, y), f"{round(average * 100)}%", fill="black", font=_font(22), anchor="ra")
+
+    top = y + BAROMETER_STRIP_TOP
+    bottom = top + BAROMETER_STRIP_HEIGHT
+    canvas.paste(_dither_strip(w + 1, BAROMETER_STRIP_HEIGHT + 1), (x, top))
+    draw.rectangle([x, top, x + w, bottom], outline="black", width=2)  # keeps the white end visible
+
     mx = x + round(w * average)
-    draw.polygon([(mx, line_y + 2), (mx - 9, line_y + 18), (mx + 9, line_y + 18)], fill="black")
-    draw.text((x, line_y + 22), "calm", fill="black", font=_font(18))
-    draw.text((x + w, line_y + 22), "hostile", fill="black", font=_font(18), anchor="ra")
+    draw.polygon([(mx, bottom + 4), (mx - 9, bottom + 20), (mx + 9, bottom + 20)], fill="black")
+
+    label_y = bottom + 6
+    if mx - x > _END_LABEL_CLEARANCE:
+        draw.text((x, label_y), "calm", fill="black", font=_font(18))
+    if x + w - mx > _END_LABEL_CLEARANCE:
+        draw.text((x + w, label_y), "hostile", fill="black", font=_font(18), anchor="ra")
