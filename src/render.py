@@ -14,24 +14,19 @@ def _font(size):
     return ImageFont.load_default(size=size)
 
 
-def _fit_font(draw, text, max_size, max_width):
-    """Largest font up to max_size whose text fits max_width."""
-    size = max_size
-    while size > 12 and draw.textlength(text, font=_font(size)) > max_width:
-        size -= 2
-    return _font(size)
+LABELS = ("serene", "mildly irked", "displeased", "hostile", "furious")
 
 
 def _label(score):
-    if score < 0.15:
-        return "serene"
-    if score < 0.35:
-        return "mildly irked"
-    if score < 0.6:
-        return "displeased"
-    if score < 0.85:
-        return "hostile"
-    return "furious"
+    return LABELS[sum(score >= t for t in (0.15, 0.35, 0.6, 0.85))]
+
+
+def _label_font(draw, max_size, max_width):
+    """One size for every mood label: the largest at which the longest still fits."""
+    size = max_size
+    while size > 12 and max(draw.textlength(t, font=_font(size)) for t in LABELS) > max_width:
+        size -= 2
+    return _font(size)
 
 
 def _square_crop(frame, box):
@@ -73,8 +68,7 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     panel_w = width - x - pad
     draw.text((x, pad), "HOSTILITY", fill="black", font=_font(24))
     draw.text((x, pad + 28), f"{round(hostility * 100)}%", fill="black", font=_font(120))
-    label = _label(hostility)
-    draw.text((x, pad + 172), label, fill="black", font=_fit_font(draw, label, 64, panel_w))
+    draw.text((x, pad + 172), _label(hostility), fill="black", font=_label_font(draw, 64, panel_w))
 
     bar_y = pad + 260
     draw.rectangle([x, bar_y, x + panel_w, bar_y + 28], outline="black", width=3)
@@ -86,7 +80,7 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
         _draw_barometer(canvas, draw, x, height - pad - 116, panel_w, *mood)
 
     stamp = datetime.fromtimestamp(timestamp).strftime("%a %d %b  %H:%M")
-    draw.text((x, height - pad - 24), stamp, fill="black", font=_font(24))
+    draw.text((x + panel_w, height - pad - 24), stamp, fill="black", font=_font(24), anchor="ra")
     return canvas
 
 

@@ -34,3 +34,16 @@ def test_barometer_is_a_dithered_ramp_from_white_to_black():
     assert set(np.unique(strip)) <= {0, 255}
     third = strip.shape[1] // 3
     assert strip[:, :third].mean() > strip[:, -third:].mean() + 100
+
+
+def test_mood_labels_share_one_font_size_that_fits_the_longest():
+    from PIL import Image, ImageDraw
+
+    from src.render import LABELS, _font, _label, _label_font
+
+    draw = ImageDraw.Draw(Image.new("RGB", (10, 10)))
+    font = _label_font(draw, max_size=64, max_width=264)
+    assert max(draw.textlength(t, font=font) for t in LABELS) <= 264
+    bigger = _font(font.size + 2)
+    assert max(draw.textlength(t, font=bigger) for t in LABELS) > 264  # largest size that fits
+    assert [_label(h) for h in (0.0, 0.2, 0.5, 0.7, 0.95)] == list(LABELS)
