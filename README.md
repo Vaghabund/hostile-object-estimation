@@ -12,7 +12,9 @@ USB camera -> motion gate -> face landmarks -> hostility score -> best frame of 
 - **One picture per visit.** Frames from a visit are compared, and the most hostile (sharpest on ties) wins.
 - **Easy on the panel.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer visit replaces one still waiting.
 - **Mood barometer.** Above the date, a scale shows the average hostility of every visit in the last 24 hours (`MOOD_WINDOW_HOURS`). Each visit counts once, at its average over the whole walk-past, whether or not the screen was refreshed for it. The numbers live in `data/moods.jsonl` and survive restarts.
-- **No photos are stored.** The only frame kept is the one on the screen (and `data/display.png` in preview mode). The mood log is just timestamps and scores.
+- **Whole faces only.** Faces partly outside the camera's view are skipped, so the panel never shows half a face.
+- **Telegram (optional).** With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, every picture put on the panel is also sent to that chat. Create the bot with @BotFather, message it once, then read your chat id from `https://api.telegram.org/bot<token>/getUpdates`.
+- **No photos are stored.** The only frame kept is the one on the screen (and `data/display.png` in preview mode). The mood log is just timestamps and scores. If Telegram is on, the shown picture does leave the device, to Telegram's servers.
 
 ## Quick start (any machine, no hardware needed)
 
@@ -66,6 +68,7 @@ Everything is optional; see `.env.example`. The settings you will most likely to
 | `MOTION_PIXEL_THRESHOLD` | 0.5 | % of edges that must change to count as motion |
 | `MIN_REFRESH_INTERVAL_SECONDS` | 180 | Minimum time between e-ink redraws |
 | `BURST_GAP_SECONDS` | 2.5 | Quiet time that ends a visit |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | empty | Send each shown picture to Telegram |
 
 ## Layout
 
@@ -78,12 +81,13 @@ src/burst.py           best frame of a visit
 src/mood.py            24 h rolling mood average
 src/render.py          composes the e-ink picture
 src/display/           preview, inky, waveshare backends
+src/notify.py          optional Telegram send
 deploy/hostile.service systemd unit
 ```
 
 ## Ideas for later
 
-Telegram overview and health checks (v1's bot is in the `v1.0.0` tag to crib from), a "no one has frowned today" screen, and a sleep schedule to blank the panel at night.
+Telegram commands and health checks (v1's bot is in the `v1.0.0` tag to crib from), a "no one has frowned today" screen, and a sleep schedule to blank the panel at night.
 
 ## v1 (parked)
 

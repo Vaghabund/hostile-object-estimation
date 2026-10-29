@@ -77,6 +77,9 @@ class FaceAnalyzer:
         for landmarks, shapes in zip(result.face_landmarks, result.face_blendshapes):
             xs = [p.x for p in landmarks]
             ys = [p.y for p in landmarks]
+            # A face running off the frame edge would show up cut off on the panel.
+            if min(xs) < 0 or min(ys) < 0 or max(xs) > 1 or max(ys) > 1:
+                continue
             box = (
                 max(0, int(min(xs) * w)), max(0, int(min(ys) * h)),
                 min(w, int(max(xs) * w)), min(h, int(max(ys) * h)),

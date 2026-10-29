@@ -19,6 +19,7 @@ from src.display import get_display
 from src.faces import FaceAnalyzer
 from src.mood import MoodLog
 from src.motion_detector import MotionDetector
+from src.notify import send_photo
 from src.render import render
 
 logger = logging.getLogger("hostile")
@@ -32,6 +33,7 @@ def publish(display, capture, mood):
     )
     display.show(image)
     logger.info("Showing face with hostility %.0f%%", capture.face.hostility * 100)
+    send_photo(image, f"Hostility {round(capture.face.hostility * 100)}%")
 
 
 def run_once(image_path):

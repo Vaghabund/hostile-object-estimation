@@ -73,6 +73,12 @@ WAVESHARE_MODEL = os.getenv("WAVESHARE_MODEL", "epd7in5_V2")
 PREVIEW_PATH = _path("PREVIEW_PATH", "data/display.png")
 
 # ============================================================================
+# Telegram (optional): every picture put on the panel is also sent to this chat
+# ============================================================================
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
+
+# ============================================================================
 # Logging
 # ============================================================================
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
