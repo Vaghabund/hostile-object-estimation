@@ -24,3 +24,4 @@ htmlcov/
 # Runtime output and downloaded models
 data/
 models/
+NOTES.local.md

@@ -2,8 +2,6 @@
 
 A hallway art piece. A camera watches the corridor; when someone walks past, a Raspberry Pi finds their face, reads how much they are frowning, and shows the most hostile moment of the visit on an e-ink display with a "hostility" percentage.
 
-(v1, the YOLO + Telegram surveillance version, is tagged [`v1.0.0`](https://github.com/Vaghabund/hostile-object-estimation/releases/tag/v1.0.0).)
-
 ```
 USB camera -> motion gate -> face landmarks -> hostility score -> best frame of the visit -> e-ink
              (cheap, always)  (only on motion)  (brows, frown, squint)                       (rate limited)
@@ -30,14 +28,17 @@ The face model (about 4 MB) is downloaded on first run into `models/`. On Linux,
 
 ## On the Pi
 
-Use **64-bit** Raspberry Pi OS, since MediaPipe has no 32-bit wheels. A Pi 4 is the safe choice; a Pi Zero 2 W is lower power but untested here.
+Built on a **Raspberry Pi 5** with a Waveshare e-Paper Driver HAT (SKU 13512), a 7.5" 800x480 black/white panel (`epd7in5_V2`) and a USB webcam. Use **64-bit** Raspberry Pi OS (Lite is enough), since MediaPipe has no 32-bit wheels.
+
+Flash with Raspberry Pi Imager: hostname `hoe`, user `admin`, SSH on with public-key login. Then `ssh admin@hoe.local`. Passwords are not kept in this repo.
 
 ```bash
-sudo apt install python3-venv libegl1 libgles2 libgl1
-git clone <this repo> ~/hostile-object-estimation && cd ~/hostile-object-estimation
+sudo raspi-config nonint do_spi 0 && sudo reboot   # the HAT talks SPI
+sudo apt install git python3-venv python3-dev libegl1 libgles2 libgl1 python3-spidev python3-gpiozero python3-lgpio
+git clone https://github.com/Vaghabund/hostile-object-estimation ~/hostile-object-estimation && cd ~/hostile-object-estimation
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env     # pick your display backend
+cp .env.example .env     # DISPLAY_BACKEND=waveshare, WAVESHARE_MODEL=epd7in5_V2
 sudo cp deploy/hostile.service /etc/systemd/system/   # edit User/paths first
 sudo systemctl enable --now hostile
 ```
@@ -83,3 +84,7 @@ deploy/hostile.service systemd unit
 ## Ideas for later
 
 Telegram overview and health checks (v1's bot is in the `v1.0.0` tag to crib from), a "no one has frowned today" screen, and a sleep schedule to blank the panel at night.
+
+## v1 (parked)
+
+The first version, a YOLO object detector that sent Telegram alerts, is no longer developed. It lives in the tag [`v1.0.0`](https://github.com/Vaghabund/hostile-object-estimation/releases/tag/v1.0.0).
