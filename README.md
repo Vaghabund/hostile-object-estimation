@@ -38,12 +38,34 @@ Flash with Raspberry Pi Imager: hostname `hoe`, user `admin`, SSH on with public
 sudo raspi-config nonint do_spi 0 && sudo reboot   # the HAT talks SPI
 sudo apt install git python3-venv python3-dev libegl1 libgles2 libgl1 python3-spidev python3-gpiozero python3-lgpio
 git clone https://github.com/Vaghabund/hostile-object-estimation ~/hostile-object-estimation && cd ~/hostile-object-estimation
-python3 -m venv .venv && . .venv/bin/activate
+python3 -m venv --system-site-packages .venv && . .venv/bin/activate   # system packages: the GPIO/SPI libs above
 pip install -r requirements.txt
-cp .env.example .env     # DISPLAY_BACKEND=waveshare, WAVESHARE_MODEL=epd7in5_V2
-sudo cp deploy/hostile.service /etc/systemd/system/   # edit User/paths first
-sudo systemctl enable --now hostile
+
+# Waveshare's driver is not on PyPI; copy it in from their repo (ignored by git)
+git clone --depth 1 --filter=blob:none --sparse https://github.com/waveshareteam/e-Paper /tmp/ws
+git -C /tmp/ws sparse-checkout set RaspberryPi_JetsonNano/python/lib
+cp -r /tmp/ws/RaspberryPi_JetsonNano/python/lib/waveshare_epd . && echo waveshare_epd/ >> .git/info/exclude
+
+cp .env.example .env     # then set the values below
+sed 's#/home/pi#/home/admin#g; s#User=pi#User=admin#' deploy/hostile.service | sudo tee /etc/systemd/system/hostile.service
+sudo systemctl daemon-reload && sudo systemctl enable --now hostile
 ```
+
+The Pi's `.env` differs from the defaults in these lines:
+
+```
+DISPLAY_BACKEND=waveshare
+WAVESHARE_MODEL=epd7in5_V2
+PREFER_EXTERNAL_CAMERA=false        # on the Pi, index 1 is the webcam's metadata node, not a camera
+MOTION_PIXEL_THRESHOLD=1.0          # webcam noise alone reached 0.76%
+MIN_REFRESH_INTERVAL_SECONDS=30
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHAT_ID=...
+```
+
+Logs: `journalctl -u hostile -f`. After editing `.env`: `sudo systemctl restart hostile`.
+
+**Changing Wi-Fi** needs no reflash. Add the new network while the Pi is still online (`sudo nmcli con add type wifi ssid "Name" wifi-sec.key-mgmt wpa-psk wifi-sec.psk "Password"`), or plug in a LAN cable and do it then. `hoe.local` works on any network.
 
 ### Displays
 
@@ -55,7 +77,7 @@ Set `DISPLAY_BACKEND` in `.env`:
 | `inky` | Pimoroni Inky Impression/wHAT, auto-detected | `pip install inky[rpi]` |
 | `waveshare` | Waveshare black/white panel, `WAVESHARE_MODEL=epd7in5_V2` | Waveshare's `waveshare_epd` library |
 
-The `preview` backend and the pipeline are tested. The `inky` and `waveshare` backends are thin wrappers written against those libraries' documented APIs and have **not been run on real hardware yet**, so expect to adjust them when the panel arrives.
+The `preview` backend and the pipeline are tested, and `waveshare` runs on the Pi 5 described above. The `inky` backend is a thin wrapper written against Pimoroni's documented API and has **not been run on real hardware yet**.
 
 ## Configuration
 
