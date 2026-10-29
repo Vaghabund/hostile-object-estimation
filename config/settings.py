@@ -64,7 +64,7 @@ MOOD_WINDOW_HOURS = float(os.getenv("MOOD_WINDOW_HOURS", "24"))
 # ============================================================================
 # Display
 # ============================================================================
-DISPLAY_BACKEND = os.getenv("DISPLAY_BACKEND", "preview")  # preview | inky | waveshare
+DISPLAY_BACKEND = os.getenv("DISPLAY_BACKEND", "preview")  # preview | waveshare
 DISPLAY_SIZE = (
     int(os.getenv("DISPLAY_WIDTH", "800")),
     int(os.getenv("DISPLAY_HEIGHT", "480")),

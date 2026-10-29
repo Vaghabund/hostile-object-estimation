@@ -74,10 +74,9 @@ Set `DISPLAY_BACKEND` in `.env`:
 | Backend | Hardware | Extra install |
 |---|---|---|
 | `preview` | none (writes a PNG) | |
-| `inky` | Pimoroni Inky Impression/wHAT, auto-detected | `pip install inky[rpi]` |
 | `waveshare` | Waveshare black/white panel, `WAVESHARE_MODEL=epd7in5_V2` | Waveshare's `waveshare_epd` library |
 
-The `preview` backend and the pipeline are tested, and `waveshare` runs on the Pi 5 described above. The `inky` backend is a thin wrapper written against Pimoroni's documented API and has **not been run on real hardware yet**.
+The `preview` backend and the pipeline are tested, and `waveshare` runs on the Pi 5 described above.
 
 ## Configuration
 
@@ -102,7 +101,7 @@ src/hostility.py       blendshapes -> 0..1 score
 src/burst.py           best frame of a visit
 src/mood.py            24 h rolling mood average
 src/render.py          composes the e-ink picture
-src/display/           preview, inky, waveshare backends
+src/display/           preview and waveshare backends
 src/notify.py          optional Telegram send
 deploy/hostile.service systemd unit
 ```

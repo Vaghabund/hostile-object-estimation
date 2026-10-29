@@ -6,10 +6,7 @@ def get_display(name=DISPLAY_BACKEND):
     if name == "preview":
         from src.display.preview import PreviewDisplay
         return PreviewDisplay()
-    if name == "inky":
-        from src.display.inky import InkyDisplay
-        return InkyDisplay()
     if name == "waveshare":
         from src.display.waveshare import WaveshareDisplay
         return WaveshareDisplay()
-    raise ValueError(f"Unknown DISPLAY_BACKEND {name!r} (use preview, inky or waveshare)")
+    raise ValueError(f"Unknown DISPLAY_BACKEND {name!r} (use preview or waveshare)")
