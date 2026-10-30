@@ -29,7 +29,7 @@ def _label_font(draw, max_size, max_width):
     return _font(size)
 
 
-def _square_crop(frame, box):
+def square_crop(frame, box):
     """Square crop centred on the face box, padded by FACE_MARGIN and clamped to the frame."""
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = box
@@ -56,7 +56,7 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     canvas = Image.new("RGB", size, "white")
     draw = ImageDraw.Draw(canvas)
 
-    crop = _square_crop(frame, face_box)
+    crop = square_crop(frame, face_box)
     portrait = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)).convert("L")
     portrait = ImageOps.autocontrast(portrait.resize((height, height), Image.LANCZOS), cutoff=1)
     if mono:

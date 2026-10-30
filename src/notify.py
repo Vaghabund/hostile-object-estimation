@@ -25,7 +25,8 @@ def _multipart(fields, png):
     return b"".join(parts), f"multipart/form-data; boundary={boundary}"
 
 
-def _send(image, caption):
+def send_photo_now(image, caption):
+    """Send and wait; errors are logged, never raised."""
     buf = io.BytesIO()
     image.save(buf, "PNG")
     body, content_type = _multipart({"chat_id": TELEGRAM_CHAT_ID, "caption": caption}, buf.getvalue())
@@ -44,4 +45,4 @@ def send_photo(image, caption):
     """Send in the background; does nothing unless TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID are set."""
     if not (TELEGRAM_BOT_TOKEN and TELEGRAM_CHAT_ID):
         return
-    threading.Thread(target=_send, args=(image, caption), daemon=True).start()
+    threading.Thread(target=send_photo_now, args=(image, caption), daemon=True).start()

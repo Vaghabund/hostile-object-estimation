@@ -17,7 +17,7 @@ def test_sends_png_with_caption_to_the_chat(monkeypatch):
     monkeypatch.setattr(notify, "TELEGRAM_BOT_TOKEN", "123:abc")
     monkeypatch.setattr(notify, "TELEGRAM_CHAT_ID", "42")
     monkeypatch.setattr(notify.urllib.request, "urlopen", fake_urlopen)
-    notify._send(Image.new("RGB", (8, 8), "white"), "Hostility 70%")
+    notify.send_photo_now(Image.new("RGB", (8, 8), "white"), "Hostility 70%")
 
     assert sent["url"] == "https://api.telegram.org/bot123:abc/sendPhoto"
     assert b'name="chat_id"\r\n\r\n42\r\n' in sent["body"]
@@ -30,7 +30,7 @@ def test_network_error_is_swallowed(monkeypatch):
         raise OSError("no network")
 
     monkeypatch.setattr(notify.urllib.request, "urlopen", failing_urlopen)
-    notify._send(Image.new("RGB", (8, 8)), "x")  # must not raise
+    notify.send_photo_now(Image.new("RGB", (8, 8)), "x")  # must not raise
 
 
 def test_does_nothing_without_credentials(monkeypatch):
