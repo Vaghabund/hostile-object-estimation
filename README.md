@@ -15,7 +15,7 @@ USB camera -> motion gate -> face landmarks -> hostility score -> best frame of 
 - **Whole faces only.** Faces partly outside the camera's view are skipped, so the panel never shows half a face.
 - **Telegram (optional).** With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, every picture put on the panel is also sent to that chat. Create the bot with @BotFather, message it once, then read your chat id from `https://api.telegram.org/bot<token>/getUpdates`. The chat can also send:
   - `/snap`: the camera's view right now, as a plain photo. Never stored.
-  - `/review`: the most hostile pictures shown in the last 24 hours (up to `REVIEW_MAX_PICTURES`, default 25) in one grid, with the mood average.
+  - `/review`: the faces of the most hostile pictures shown in the last 24 hours (up to `REVIEW_MAX_PICTURES`, default 25), sorted and tagged with their scores, next to the mood average and an hourly mood chart. It comes as an inline photo plus the same image at full resolution as a file.
 
   Only that chat gets answers. Messages from anyone else are ignored, since `/snap` is a live camera.
 - **What is stored.** Every picture put on the panel is kept in `data/shown/` (the panel image plus the face crop) for `MOOD_WINDOW_HOURS`, then deleted. The mood log is timestamps and scores. If Telegram is on, shown pictures and snaps also go to Telegram's servers.

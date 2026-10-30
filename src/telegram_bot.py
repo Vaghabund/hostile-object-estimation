@@ -9,8 +9,8 @@ import cv2
 from PIL import Image
 
 from config.settings import MOOD_WINDOW_HOURS, REVIEW_MAX_PICTURES, TELEGRAM_BOT_TOKEN, TELEGRAM_CHAT_ID
-from src.notify import send_photo_now
-from src.review import render_review
+from src.notify import send_document_now, send_photo_now
+from src.review import DOCUMENT_SIZE, PHOTO_SIZE, render_review
 
 logger = logging.getLogger(__name__)
 
@@ -114,11 +114,13 @@ class TelegramBot:
         if not pictures:
             self._say(f"Nothing shown in the last {WINDOW}")
             return
-        mood = self.mood.average()
+        mood, hourly, now = self.mood.average(), self.mood.hourly(), time.time()
         caption = f"Last {WINDOW}"
         if mood is not None:
             caption += f": {mood[1]} visits, mood {round(mood[0] * 100)}%"
-        send_photo_now(render_review(pictures, mood), caption)
+        args = (pictures, hourly, mood, now, WINDOW.upper())
+        send_photo_now(render_review(*args, size=PHOTO_SIZE), caption)
+        send_document_now(render_review(*args, size=DOCUMENT_SIZE), "Full resolution")
 
     def _say(self, text):
         try:
