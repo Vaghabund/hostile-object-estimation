@@ -5,6 +5,7 @@ import sys
 import time
 
 import cv2
+from PIL import Image
 
 from config.settings import (
     ACTIVE_WINDOW_SECONDS,
@@ -20,13 +21,15 @@ from src.faces import FaceAnalyzer
 from src.mood import MoodLog
 from src.motion_detector import MotionDetector
 from src.notify import send_photo
-from src.render import render
+from src.render import render, square_crop
+from src.shown import ShownPictures
+from src.telegram_bot import TelegramBot
 
 logger = logging.getLogger("hostile")
 
 
-def publish(display, capture, mood):
-    """`mood` is (average hostility, visit count) for the barometer."""
+def publish(display, capture, mood, shown=None):
+    """`mood` is (average hostility, visit count) for the barometer; `shown` keeps the picture for /review."""
     image = render(
         capture.frame, capture.face.box, capture.face.hostility, capture.timestamp,
         size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood,
@@ -34,6 +37,9 @@ def publish(display, capture, mood):
     display.show(image)
     logger.info("Showing face with hostility %.0f%%", capture.face.hostility * 100)
     send_photo(image, f"Hostility {round(capture.face.hostility * 100)}%")
+    if shown is not None:
+        face = Image.fromarray(cv2.cvtColor(square_crop(capture.frame, capture.face.box), cv2.COLOR_BGR2RGB))
+        shown.save(image, face, capture.face.hostility, capture.timestamp)
 
 
 def run_once(image_path):
@@ -76,6 +82,8 @@ def run_forever():
     motion = MotionDetector()
     burst = BurstSelector(BURST_GAP_SECONDS)
     mood = MoodLog()
+    shown = ShownPictures()
+    TelegramBot(camera, shown, mood).start()
 
     active_until = 0.0
     pending = None
@@ -109,7 +117,7 @@ def run_forever():
                 pending = finished  # a newer visit replaces one still waiting out the refresh limit
 
             if pending is not None and now - last_refresh >= MIN_REFRESH_INTERVAL_SECONDS:
-                publish(display, pending, mood.average())
+                publish(display, pending, mood.average(), shown)
                 pending = None
                 last_refresh = now
     finally:

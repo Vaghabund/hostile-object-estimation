@@ -10,6 +10,17 @@ def make(tmp_path, now):
     return MoodLog(tmp_path / "moods.jsonl", window_hours=24, clock=lambda: clock["t"]), clock
 
 
+def test_hourly_means_end_with_the_current_hour(tmp_path):
+    log, clock = make(tmp_path, 1000 * HOUR + 1800)
+    log.record(0.2, 1000 * HOUR + 60)
+    log.record(0.6, 1000 * HOUR + 120)
+    log.record(0.9, 998 * HOUR + 60)
+    hourly = log.hourly()
+    assert len(hourly) == 24
+    assert abs(hourly[-1] - 0.4) < 1e-9 and hourly[-3] == 0.9
+    assert hourly[-2] is None
+
+
 def test_empty_log_has_no_average(tmp_path):
     log, _ = make(tmp_path, 1000 * HOUR)
     assert log.average() is None

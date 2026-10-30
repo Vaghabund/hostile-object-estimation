@@ -56,7 +56,7 @@ BURST_GAP_SECONDS = float(os.getenv("BURST_GAP_SECONDS", "2.5"))
 MIN_REFRESH_INTERVAL_SECONDS = float(os.getenv("MIN_REFRESH_INTERVAL_SECONDS", "180"))
 
 # ============================================================================
-# Mood barometer (average hostility of recent visits; numbers only, no images)
+# Mood barometer (average hostility of recent visits)
 # ============================================================================
 MOOD_LOG_PATH = _path("MOOD_LOG_PATH", "data/moods.jsonl")
 MOOD_WINDOW_HOURS = float(os.getenv("MOOD_WINDOW_HOURS", "24"))
@@ -72,8 +72,13 @@ DISPLAY_SIZE = (
 WAVESHARE_MODEL = os.getenv("WAVESHARE_MODEL", "epd7in5_V2")
 PREVIEW_PATH = _path("PREVIEW_PATH", "data/display.png")
 
+# Every picture put on the panel is kept here for MOOD_WINDOW_HOURS, for /review.
+SHOWN_DIR = _path("SHOWN_DIR", "data/shown")
+REVIEW_MAX_PICTURES = int(os.getenv("REVIEW_MAX_PICTURES", "25"))
+
 # ============================================================================
-# Telegram (optional): every picture put on the panel is also sent to this chat
+# Telegram (optional): every picture put on the panel is also sent to this chat,
+# and the chat can send /snap and /review. No other chat gets an answer.
 # ============================================================================
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")

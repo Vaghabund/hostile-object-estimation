@@ -1,7 +1,9 @@
 """Rolling log of how hostile recent visits were, for the mood barometer."""
 import json
 import logging
+import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from config.settings import MOOD_LOG_PATH, MOOD_WINDOW_HOURS
@@ -19,6 +21,7 @@ class MoodLog:
         self.path = path
         self.window = window_hours * 3600
         self._clock = clock
+        self._lock = threading.Lock()
         self._entries = self._load()
         self._rewrite()  # drop expired lines so the file stays small
 
@@ -46,14 +49,29 @@ class MoodLog:
 
     def record(self, hostility: float, timestamp: float = None):
         entry = (self._clock() if timestamp is None else timestamp, hostility)
-        self._entries.append(entry)
-        with open(self.path, "a") as f:
-            f.write(json.dumps({"t": entry[0], "v": entry[1]}) + "\n")
+        with self._lock:
+            self._entries.append(entry)
+            with open(self.path, "a") as f:
+                f.write(json.dumps({"t": entry[0], "v": entry[1]}) + "\n")
 
     def average(self):
         """Return (mean hostility, number of visits) over the window, or None if empty."""
         cutoff = self._clock() - self.window
-        self._entries = [e for e in self._entries if e[0] >= cutoff]
-        if not self._entries:
-            return None
-        return sum(v for _, v in self._entries) / len(self._entries), len(self._entries)
+        with self._lock:  # the Telegram bot reads this from its own thread
+            self._entries = [e for e in self._entries if e[0] >= cutoff]
+            if not self._entries:
+                return None
+            return sum(v for _, v in self._entries) / len(self._entries), len(self._entries)
+
+    def hourly(self):
+        """Mean hostility per clock hour across the window, oldest first, ending with the current hour; None where nobody came."""
+        hours = max(1, round(self.window / 3600))
+        this_hour = datetime.fromtimestamp(self._clock()).replace(minute=0, second=0, microsecond=0)
+        first = this_hour.timestamp() - (hours - 1) * 3600  # local clock hours, matching the chart's labels
+        buckets = [[] for _ in range(hours)]
+        with self._lock:
+            for t, v in self._entries:
+                i = int(t - first) // 3600
+                if 0 <= i < hours:
+                    buckets[i].append(v)
+        return [sum(b) / len(b) if b else None for b in buckets]
