@@ -21,7 +21,7 @@ MODEL_URL = (
 class FaceResult:
     box: tuple          # (x1, y1, x2, y2) in pixels
     hostility: float    # 0..1
-    sharpness: float    # Laplacian variance of the face crop; higher = sharper
+    sharpness: float    # Laplacian variance of the face crop at SHARPNESS_SIZE; higher = sharper
 
     @property
     def width(self):
@@ -40,12 +40,18 @@ def ensure_model(path: Path = FACE_MODEL_PATH) -> Path:
     return path
 
 
+SHARPNESS_SIZE = 128  # crops are compared at one size, so big and small faces score alike
+
+
 def sharpness(frame, box):
     x1, y1, x2, y2 = box
     crop = frame[y1:y2, x1:x2]
     if crop.size == 0:
         return 0.0
-    return float(cv2.Laplacian(cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), cv2.CV_64F).var())
+    gray = cv2.resize(
+        cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY), (SHARPNESS_SIZE, SHARPNESS_SIZE), interpolation=cv2.INTER_AREA
+    )
+    return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
 class FaceAnalyzer:

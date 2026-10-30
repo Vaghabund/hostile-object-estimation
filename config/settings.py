@@ -20,9 +20,10 @@ def _path(env_name: str, default: str) -> Path:
 # Camera
 # ============================================================================
 CAMERA_ID = int(os.getenv("CAMERA_ID", "0"))
-CAMERA_RESOLUTION = (640, 480)  # (width, height)
-# Low on purpose: fewer frames to decode and motion-check keeps an always-on Pi cool.
-CAMERA_FPS = int(os.getenv("CAMERA_FPS", "10"))
+# 720p gives faces about twice the detail of 640x480, so the portrait is stretched less.
+CAMERA_RESOLUTION = (1280, 720)  # (width, height)
+# An exposure can't outlast a frame: 30 fps caps it at 33 ms, so moving faces don't smear.
+CAMERA_FPS = int(os.getenv("CAMERA_FPS", "30"))
 CAMERA_WARMUP_FRAMES = 5
 PREFER_EXTERNAL_CAMERA = _str_to_bool(os.getenv("PREFER_EXTERNAL_CAMERA", "true"))
 CAMERA_PROBE_LIMIT = int(os.getenv("CAMERA_PROBE_LIMIT", "3"))
@@ -33,7 +34,7 @@ CAMERA_PROBE_LIMIT = int(os.getenv("CAMERA_PROBE_LIMIT", "3"))
 MOTION_CANNY_THRESHOLD_LOW = int(os.getenv("MOTION_CANNY_LOW", "50"))
 MOTION_CANNY_THRESHOLD_HIGH = int(os.getenv("MOTION_CANNY_HIGH", "150"))
 MOTION_CHANGED_PIXELS_THRESHOLD = float(os.getenv("MOTION_PIXEL_THRESHOLD", "0.5"))  # % of pixels
-MOTION_DOWNSCALE = float(os.getenv("MOTION_DOWNSCALE", "0.5"))
+MOTION_DOWNSCALE = float(os.getenv("MOTION_DOWNSCALE", "0.25"))
 # After motion, keep looking for faces this long (extended whenever a face is seen).
 ACTIVE_WINDOW_SECONDS = float(os.getenv("ACTIVE_WINDOW_SECONDS", "4.0"))
 
@@ -41,10 +42,10 @@ ACTIVE_WINDOW_SECONDS = float(os.getenv("ACTIVE_WINDOW_SECONDS", "4.0"))
 # Face analysis + hostility
 # ============================================================================
 FACE_MODEL_PATH = _path("FACE_MODEL_PATH", "models/face_landmarker.task")
-FACE_MIN_WIDTH_PX = int(os.getenv("FACE_MIN_WIDTH_PX", "80"))  # ignore faces smaller than this
+FACE_MIN_WIDTH_PX = int(os.getenv("FACE_MIN_WIDTH_PX", "160"))  # ignore faces smaller than this (at 1280x720)
 # Raw blendshape sums are small even for a good scowl; this scales them to 0-1.
 HOSTILITY_GAIN = float(os.getenv("HOSTILITY_GAIN", "2.0"))
-# Faces blurrier than this (Laplacian variance of the crop) are not candidates.
+# Faces blurrier than this (Laplacian variance of the crop at a fixed size) are not candidates.
 FACE_MIN_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "30"))
 
 # ============================================================================
@@ -52,6 +53,8 @@ FACE_MIN_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "30"))
 # ============================================================================
 # A visit ends when no face has been seen for this long; the best frame of the visit is kept.
 BURST_GAP_SECONDS = float(os.getenv("BURST_GAP_SECONDS", "2.5"))
+# Only frames at least this sharp, relative to the visit's sharpest, can be picked; then the most hostile wins.
+BURST_SHARPNESS_RATIO = float(os.getenv("BURST_SHARPNESS_RATIO", "0.6"))
 # E-ink wears with refreshes and takes seconds per update. Never redraw faster than this.
 MIN_REFRESH_INTERVAL_SECONDS = float(os.getenv("MIN_REFRESH_INTERVAL_SECONDS", "180"))
 
