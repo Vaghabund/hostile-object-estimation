@@ -1,6 +1,6 @@
 """The /review picture: the most hostile recent faces next to the mood of the window.
 
-Laid out like the panel (800x480 units, faces left, reading right) but only ever
+Laid out like the display (800x480 units, faces left, reading right) but only ever
 sent to Telegram, so it is drawn at whatever size it is asked for. The dither is
 done at that final size: rescaling a dithered image turns it to grey mush.
 """
@@ -19,10 +19,10 @@ def render_review(pictures, hourly, mood, now, window_label="24H", size=PHOTO_SI
     """
     `pictures` are ShownPicture, most hostile first. `hourly` is one mean
     hostility (or None) per clock hour, oldest first, the last being the current
-    hour. `mood` is (average hostility, visit count) or None. `now` is unix time.
+    hour. `mood` is (average hostility, burst count) or None. `now` is unix time.
     """
     width, height = size
-    s = width / 800  # one panel pixel
+    s = width / 800  # one display pixel
     canvas = Image.new("RGB", size, "white")
     _draw_grid(canvas, pictures, height, s)
 
@@ -47,7 +47,7 @@ def render_review(pictures, hourly, mood, now, window_label="24H", size=PHOTO_SI
 
 
 def _draw_grid(canvas, pictures, side_total, s):
-    """Square grid on the left, as many columns as needed, each face with its score in a black corner tag."""
+    """Square grid on the left, as many columns as needed, each face with its hostility in a black corner tag."""
     draw = ImageDraw.Draw(canvas)
     cols = math.ceil(math.sqrt(len(pictures)))
     gap = max(2, round(4 * s))

@@ -18,8 +18,8 @@ def _font(size):
 LABELS = ("serene", "mildly irked", "displeased", "hostile", "furious")
 
 
-def _label(score):
-    return LABELS[sum(score >= t for t in (0.15, 0.35, 0.6, 0.85))]
+def _label(hostility):
+    return LABELS[sum(hostility >= t for t in (0.15, 0.35, 0.6, 0.85))]
 
 
 def _label_font(draw, max_size, max_width):
@@ -52,12 +52,12 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     Return an RGB PIL image of `size`: the face on the left as a grayscale
     portrait, the hostility reading on the right.
 
-    `mood` is (average hostility, visit count) over the last 24 h, drawn as a
+    `mood` is (average hostility, burst count) over the last 24 h, drawn as a
     barometer above the date; None leaves it out. `landmarks` (the face mesh
     from FaceResult) draws the main face marks over the portrait.
 
     With mono=True the portrait is Floyd-Steinberg dithered here (text stays
-    crisp); colour panels get the plain grayscale and do their own palette work.
+    crisp); colour displays get the plain grayscale and do their own palette work.
     """
     width, height = size
     canvas = Image.new("RGB", size, "white")
@@ -81,24 +81,24 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
 
     pad = 28
     x = height + pad
-    panel_w = width - x - pad
+    reading_w = width - x - pad
     draw.text((x, pad), "HOSTILITY", fill="black", font=_font(24))
     draw.text((x, pad + 28), f"{round(hostility * 100)}%", fill="black", font=_font(120))
-    draw.text((x, pad + 172), _label(hostility), fill="black", font=_label_font(draw, 64, panel_w))
+    draw.text((x, pad + 172), _label(hostility), fill="black", font=_label_font(draw, 64, reading_w))
 
     bar_y = pad + 260
-    draw.rectangle([x, bar_y, x + panel_w, bar_y + 28], outline="black", width=3)
-    fill_w = int(panel_w * hostility)
+    draw.rectangle([x, bar_y, x + reading_w, bar_y + 28], outline="black", width=3)
+    fill_w = int(reading_w * hostility)
     if fill_w:
         draw.rectangle([x, bar_y, x + fill_w, bar_y + 28], fill="black")
 
     if mood is not None:
-        _draw_barometer(canvas, draw, x, height - pad - 116, panel_w, *mood)
+        _draw_barometer(canvas, draw, x, height - pad - 116, reading_w, *mood)
 
     when = datetime.fromtimestamp(timestamp)
     foot_y, foot_font = height - pad - 24, _font(24)
     draw.text((x, foot_y), when.strftime("%a %d %b"), fill="black", font=foot_font)
-    draw.text((x + panel_w, foot_y), when.strftime("%H:%M"), fill="black", font=foot_font, anchor="ra")
+    draw.text((x + reading_w, foot_y), when.strftime("%H:%M"), fill="black", font=foot_font, anchor="ra")
     return canvas
 
 
@@ -113,7 +113,7 @@ def _dither_strip(w, h):
     return Image.fromarray(ramp.astype(np.uint8), "L").convert("1").convert("RGB")
 
 
-def _draw_barometer(canvas, draw, x, y, w, average, visits):
+def _draw_barometer(canvas, draw, x, y, w, average, bursts):
     """A dithered calm (white) to hostile (black) spectrum with a marker at the 24 h average."""
     draw.text((x, y), "LAST 24H", fill="black", font=_font(26))
     draw.text((x + w, y), f"{round(average * 100)}%", fill="black", font=_font(26), anchor="ra")

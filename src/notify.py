@@ -1,4 +1,4 @@
-"""Send the picture on the panel to a Telegram chat (optional)."""
+"""Send the picture on the display to a Telegram chat (optional)."""
 import io
 import logging
 import threading

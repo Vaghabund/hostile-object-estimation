@@ -34,7 +34,7 @@ def test_average_over_window(tmp_path):
     assert abs(avg - 0.4) < 1e-9 and n == 2
 
 
-def test_old_visits_drop_out(tmp_path):
+def test_old_bursts_drop_out(tmp_path):
     log, clock = make(tmp_path, 1000 * HOUR)
     log.record(0.9)
     clock["t"] += 25 * HOUR

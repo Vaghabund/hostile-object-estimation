@@ -1,4 +1,4 @@
-"""The pictures put on the panel in the last MOOD_WINDOW_HOURS, kept on disk for /review."""
+"""The pictures put on the display in the last MOOD_WINDOW_HOURS, kept on disk for /review."""
 import logging
 import threading
 import time
@@ -14,13 +14,13 @@ logger = logging.getLogger(__name__)
 class ShownPicture:
     timestamp: float
     hostility: float
-    panel: Path   # the full render, as it was on the panel
-    face: Path    # the face crop alone, for a review layout that wants it
+    image: Path   # the picture, as it was on the display
+    face: Path    # the portrait alone, for a review layout that wants it
 
 
 class ShownPictures:
     """
-    One `<unix time>_<hostility>.png` (the panel) plus `<same>_face.png` per shown
+    One `<unix time>_<hostility>.png` (the picture) plus `<same>_face.png` per shown
     picture. The name carries everything, so there is no index to keep in sync.
     Files older than the window are deleted on startup and on every save.
     """
@@ -34,10 +34,10 @@ class ShownPictures:
         with self._lock:
             self._prune()
 
-    def save(self, panel_image, face_image, hostility: float, timestamp: float):
+    def save(self, image, face_image, hostility: float, timestamp: float):
         stem = f"{int(timestamp)}_{hostility:.3f}"
         with self._lock:
-            panel_image.save(self.dir / f"{stem}.png")
+            image.save(self.dir / f"{stem}.png")
             face_image.save(self.dir / f"{stem}_face.png")
             self._prune()
 
@@ -52,19 +52,19 @@ class ShownPictures:
 
     def _scan(self):
         pictures = []
-        for panel in self.dir.glob("*.png"):
-            if panel.stem.endswith("_face"):
+        for path in self.dir.glob("*.png"):
+            if path.stem.endswith("_face"):
                 continue
             try:
-                t, h = panel.stem.split("_")
-                pictures.append(ShownPicture(float(t), float(h), panel, panel.with_name(f"{panel.stem}_face.png")))
+                t, h = path.stem.split("_")
+                pictures.append(ShownPicture(float(t), float(h), path, path.with_name(f"{path.stem}_face.png")))
             except ValueError:
-                logger.warning("Ignoring unexpected file %s", panel.name)
+                logger.warning("Ignoring unexpected file %s", path.name)
         return sorted(pictures, key=lambda p: p.timestamp)
 
     def _prune(self):
         cutoff = self._clock() - self.window
         for picture in self._scan():
             if picture.timestamp < cutoff:
-                picture.panel.unlink(missing_ok=True)
+                picture.image.unlink(missing_ok=True)
                 picture.face.unlink(missing_ok=True)
