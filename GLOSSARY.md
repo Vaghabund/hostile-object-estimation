@@ -25,21 +25,21 @@ _Avoid_: panel, stats
 ### Walk-pasts
 
 **Burst**:
-One person's walk past the camera: the run of face sightings that ends once no face has been seen for a set quiet time. Each burst yields at most one candidate picture.
+One person's walk past the camera: from the first face seen until no face has been seen for a set quiet time. A burst has at most one graded face.
 _Avoid_: visit, walk-by, session
+
+**Graded face**:
+The first sharp whole face of a burst. Its hostility is the only one read for that burst; later faces in the same burst are ignored.
+_Avoid_: best frame, peak, capture
 
 ### Hostility
 
 **Hostility**:
-How much a face is frowning in one frame, from 0 to 1, shown as a percentage.
-_Avoid_: anger, score
-
-**Peak**:
-The hostility of a burst's chosen frame, the most hostile of the sharp-enough frames. It is the number in the reading, and the one that counts toward the mood.
-_Avoid_: best, max, score
+How much a graded face is frowning, from 0 to 1, shown as a percentage.
+_Avoid_: anger, score, peak
 
 **Mood**:
-The average of the peaks of every burst in the last 24 hours, whether or not the burst's picture reached the display.
+The average hostility of every burst's graded face in the last 24 hours, whether or not its picture reached the display.
 _Avoid_: average, barometer value
 
 ### Seeing a face
@@ -48,7 +48,7 @@ _Avoid_: average, barometer value
 The cheap always-on check that something in the corridor is moving. The face model only runs while it is open.
 
 **Sharpness**:
-How in-focus a face is in a frame. It falls with blur and with dim light. Frames much less sharp than the burst's sharpest are not eligible to be the peak.
+How in-focus a face is in a frame. It falls with blur and with dim light. A face below the minimum sharpness is not graded.
 
 **Whole face**:
 A face fully inside the camera's view. Faces cut off by the frame edge are ignored, so the display never shows half a face.
