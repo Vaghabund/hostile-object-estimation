@@ -92,6 +92,7 @@ Everything is optional; see `.env.example`. The settings you will most likely to
 | `HOSTILITY_GAIN` | 2.0 | Raise if scowls read too low |
 | `FACE_MIN_WIDTH_PX` | 160 | Ignore faces smaller (further away) than this, in 1280x720 pixels |
 | `FACE_MIN_SHARPNESS` | 6 | Drop faces scoring below this sharpness (the score also falls in dim light, so it depends on the install) |
+| `FACE_MARKS` | true | Draw the eyes, brows, nose, mouth and face outline over the portrait, inverted so they show on light and dark |
 | `MOTION_PIXEL_THRESHOLD` | 0.5 | % of edges that must change to count as motion |
 | `MIN_REFRESH_INTERVAL_SECONDS` | 180 | Minimum time between e-ink redraws |
 | `BURST_GAP_SECONDS` | 2.5 | Quiet time that ends a visit |

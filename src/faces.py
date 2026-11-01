@@ -8,6 +8,7 @@ import numpy as np
 
 from config.settings import FACE_MODEL_PATH, FACE_MIN_WIDTH_PX, FACE_MIN_SHARPNESS
 from src.hostility import hostility_score
+from src.render import crop_rect
 
 logger = logging.getLogger(__name__)
 
@@ -22,6 +23,7 @@ class FaceResult:
     box: tuple          # (x1, y1, x2, y2) in pixels
     hostility: float    # 0..1
     sharpness: float    # Laplacian variance of the face crop at SHARPNESS_SIZE; higher = sharper
+    landmarks: tuple = ()  # the 478 mesh points as (x, y), each 0..1 across the frame
 
     @property
     def width(self):
@@ -71,13 +73,34 @@ class FaceAnalyzer:
         )
         self._landmarker = vision.FaceLandmarker.create_from_options(options)
 
+    def _detect(self, frame):
+        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        return self._landmarker.detect(
+            self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
+        )
+
+    def refine_landmarks(self, frame, box):
+        """
+        The face mesh found again in a tight crop around `box`, as (x, y) across the whole frame, or None.
+
+        A small face in a 1280x720 frame gets a mesh that can sit tens of pixels off it; the same
+        face filling a crop is placed accurately. Too slow to run on every frame, fine once per picture.
+        """
+        h, w = frame.shape[:2]
+        left, top, side = crop_rect(frame, box)
+        result = self._detect(frame[top:top + side, left:left + side])
+        if not result.face_landmarks:
+            return None
+        # The face the box was drawn around is the one nearest the crop's centre.
+        def off_centre(landmarks):
+            return abs(np.mean([p.x for p in landmarks]) - 0.5) + abs(np.mean([p.y for p in landmarks]) - 0.5)
+        landmarks = min(result.face_landmarks, key=off_centre)
+        return tuple(((left + p.x * side) / w, (top + p.y * side) / h) for p in landmarks)
+
     def analyze(self, frame):
         """Return the most hostile usable FaceResult in a BGR frame, or None."""
         h, w = frame.shape[:2]
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        result = self._landmarker.detect(
-            self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
-        )
+        result = self._detect(frame)
 
         best = None
         for landmarks, shapes in zip(result.face_landmarks, result.face_blendshapes):
@@ -95,7 +118,10 @@ class FaceAnalyzer:
                 logger.debug("Face rejected: %d px wide (min %d)", box[2] - box[0], FACE_MIN_WIDTH_PX)
                 continue
             blend = {c.category_name: c.score for c in shapes}
-            face = FaceResult(box, hostility_score(blend), sharpness(frame, box))
+            face = FaceResult(
+                box, hostility_score(blend), sharpness(frame, box),
+                tuple((p.x, p.y) for p in landmarks),
+            )
             if face.sharpness < FACE_MIN_SHARPNESS:
                 logger.debug("Face rejected: sharpness %.0f (min %.0f)", face.sharpness, FACE_MIN_SHARPNESS)
                 continue

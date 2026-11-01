@@ -3,9 +3,10 @@ from datetime import datetime
 
 import cv2
 import numpy as np
-from PIL import Image, ImageDraw, ImageFont, ImageOps
+from PIL import Image, ImageChops, ImageDraw, ImageFont, ImageOps
 
-from config.settings import DISPLAY_SIZE
+from config.settings import DISPLAY_SIZE, FACE_MARKS
+from src.marks import marks_mask
 
 FACE_MARGIN = 0.6   # extra context around the face box, as a fraction of its size
 
@@ -29,8 +30,8 @@ def _label_font(draw, max_size, max_width):
     return _font(size)
 
 
-def square_crop(frame, box):
-    """Square crop centred on the face box, padded by FACE_MARGIN and clamped to the frame."""
+def crop_rect(frame, box):
+    """(left, top, side) of the square centred on the face box, padded by FACE_MARGIN and clamped to the frame."""
     h, w = frame.shape[:2]
     x1, y1, x2, y2 = box
     side = int(max(x2 - x1, y2 - y1) * (1 + FACE_MARGIN))
@@ -38,16 +39,22 @@ def square_crop(frame, box):
     cx, cy = (x1 + x2) // 2, (y1 + y2) // 2
     left = min(max(cx - side // 2, 0), w - side)
     top = min(max(cy - side // 2, 0), h - side)
+    return left, top, side
+
+
+def square_crop(frame, box):
+    left, top, side = crop_rect(frame, box)
     return frame[top:top + side, left:left + side]
 
 
-def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, mood=None):
+def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, mood=None, landmarks=()):
     """
     Return an RGB PIL image of `size`: the face on the left as a grayscale
     portrait, the hostility reading on the right.
 
     `mood` is (average hostility, visit count) over the last 24 h, drawn as a
-    barometer above the date; None leaves it out.
+    barometer above the date; None leaves it out. `landmarks` (the face mesh
+    from FaceResult) draws the main face marks over the portrait.
 
     With mono=True the portrait is Floyd-Steinberg dithered here (text stays
     crisp); colour panels get the plain grayscale and do their own palette work.
@@ -56,12 +63,21 @@ def render(frame, face_box, hostility, timestamp, size=DISPLAY_SIZE, mono=True, 
     canvas = Image.new("RGB", size, "white")
     draw = ImageDraw.Draw(canvas)
 
-    crop = square_crop(frame, face_box)
+    left, top, side = crop_rect(frame, face_box)
+    crop = frame[top:top + side, left:left + side]
     portrait = Image.fromarray(cv2.cvtColor(crop, cv2.COLOR_BGR2RGB)).convert("L")
     portrait = ImageOps.autocontrast(portrait.resize((height, height), Image.LANCZOS), cutoff=1)
     if mono:
         portrait = portrait.convert("1")
-    canvas.paste(portrait.convert("RGB"), (0, 0))
+    portrait = portrait.convert("RGB")
+    if FACE_MARKS and landmarks:
+        # Invert the portrait under the lines (white on dark, black on light). Done after dithering, so they stay crisp.
+        fh, fw = frame.shape[:2]
+        scale = height / side
+        points = [((x * fw - left) * scale, (y * fh - top) * scale) for x, y in landmarks]
+        mask = marks_mask(portrait.size, points, width=max(2, round(height / 160)))
+        portrait.paste(ImageChops.invert(portrait), (0, 0), mask)
+    canvas.paste(portrait, (0, 0))
 
     pad = 28
     x = height + pad

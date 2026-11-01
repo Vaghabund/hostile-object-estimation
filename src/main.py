@@ -5,6 +5,7 @@ import sys
 import time
 
 import cv2
+import numpy as np
 from PIL import Image
 
 from config.settings import (
@@ -28,11 +29,22 @@ from src.telegram_bot import TelegramBot
 logger = logging.getLogger("hostile")
 
 
-def publish(display, capture, mood, shown=None):
-    """`mood` is (average hostility, visit count) for the barometer; `shown` keeps the picture for /review."""
+def publish(display, capture, mood, shown=None, analyzer=None):
+    """
+    `mood` is (average hostility, visit count) for the barometer; `shown` keeps the picture for /review.
+    `analyzer` re-places the face marks on the picture's crop, where they sit more accurately than from the full frame.
+    """
+    landmarks = capture.face.landmarks
+    if analyzer is not None:
+        refined = analyzer.refine_landmarks(capture.frame, capture.face.box)
+        if refined is not None:
+            h, w = capture.frame.shape[:2]
+            moved = np.mean([np.hypot((a[0] - b[0]) * w, (a[1] - b[1]) * h) for a, b in zip(refined, landmarks)])
+            logger.debug("Face marks moved %.0f px when re-placed on the crop", moved)
+            landmarks = refined
     image = render(
         capture.frame, capture.face.box, capture.face.hostility, capture.timestamp,
-        size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood,
+        size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood, landmarks=landmarks,
     )
     display.show(image)
     logger.info(
@@ -52,8 +64,8 @@ def run_once(image_path):
         sys.exit(f"Could not read image: {image_path}")
     analyzer = FaceAnalyzer()
     face = analyzer.analyze(frame)
-    analyzer.close()
     if face is None:
+        analyzer.close()
         sys.exit("No usable face found (too small, too blurry, or none at all).")
 
     burst = BurstSelector(gap_seconds=0)
@@ -64,7 +76,8 @@ def run_once(image_path):
     # existing average, or just this image's score if the log is empty.
     mood = MoodLog()
     average = mood.average() or (capture.mean_hostility, 1)
-    publish(display, capture, average)
+    publish(display, capture, average, analyzer=analyzer)
+    analyzer.close()
     display.close()
 
 
@@ -127,7 +140,7 @@ def run_forever():
                 pending = finished  # a newer visit replaces one still waiting out the refresh limit
 
             if pending is not None and now - last_refresh >= MIN_REFRESH_INTERVAL_SECONDS:
-                publish(display, pending, mood.average(), shown)
+                publish(display, pending, mood.average(), shown, analyzer)
                 pending = None
                 last_refresh = now
     finally:
