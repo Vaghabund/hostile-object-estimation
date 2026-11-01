@@ -75,7 +75,7 @@ def run_once(image_path):
     # Read-only: a test image must not pollute the real mood log. Show the
     # existing average, or just this image's score if the log is empty.
     mood = MoodLog()
-    average = mood.average() or (capture.mean_hostility, 1)
+    average = mood.average() or (capture.face.hostility, 1)
     publish(display, capture, average, analyzer=analyzer)
     analyzer.close()
     display.close()
@@ -127,17 +127,21 @@ def run_forever():
             if moving:
                 active_until = now + ACTIVE_WINDOW_SECONDS
 
+            # Once a burst has its graded face, later faces are ignored: no need to run the
+            # face model, only to notice that the person is still moving about.
+            if burst.in_progress:
+                if moving:
+                    burst.keep_alive(now)
             # The face model only runs while something is moving.
-            if now < active_until:
+            elif now < active_until:
                 face = analyzer.analyze(frame)
                 if face is not None:
                     burst.add(frame, face, now)
-                    active_until = max(active_until, now + ACTIVE_WINDOW_SECONDS)
 
             finished = burst.poll(now)
             if finished is not None:
-                mood.record(finished.mean_hostility, finished.timestamp)  # every visit counts, shown or not
-                pending = finished  # a newer visit replaces one still waiting out the refresh limit
+                mood.record(finished.face.hostility, finished.timestamp)  # every burst counts, shown or not
+                pending = finished  # a newer burst replaces one still waiting out the refresh limit
 
             if pending is not None and now - last_refresh >= MIN_REFRESH_INTERVAL_SECONDS:
                 publish(display, pending, mood.average(), shown, analyzer)
