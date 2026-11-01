@@ -131,7 +131,7 @@ deploy/hostile.service systemd unit
 
 ## Ideas for later
 
-Telegram health checks (v1's bot is in the `v1.0.0` tag to crib from), a "no one has frowned today" screen, and a sleep schedule to blank the panel at night.
+Telegram health checks (v1's bot is in the `v1.0.0` tag to crib from) and a "no one has frowned today" screen.
 
 ## v1 (parked)
 
