@@ -79,8 +79,6 @@ class FaceAnalyzer:
             self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
         )
 
-        if not result.face_landmarks:
-            logger.debug("No face detected")
         best = None
         for landmarks, shapes in zip(result.face_landmarks, result.face_blendshapes):
             xs = [p.x for p in landmarks]

@@ -55,9 +55,4 @@ class MotionDetector:
         change_percentage = np.count_nonzero(cv2.absdiff(prev, edges)) / edges.size * 100
         self.last_change = change_percentage
         is_motion = bool(change_percentage > self.pixel_threshold)
-        if is_motion:
-            logger.debug(
-                "Motion: %.2f%% edges changed (threshold %.2f%%)",
-                change_percentage, self.pixel_threshold,
-            )
         return is_motion
