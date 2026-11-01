@@ -3,13 +3,13 @@
 A hallway art piece. A camera watches the corridor; when someone walks past, a Raspberry Pi finds their face, reads how much they are frowning, and shows their face on an e-ink display with a "hostility" percentage.
 
 ```
-USB camera -> motion gate -> face landmarks -> hostility -> first sharp face of the burst -> e-ink
+USB camera -> motion gate -> face landmarks -> sharpest face of the burst -> hostility -> e-ink
              (cheap, always)  (only on motion)  (brows, frown, squint)                       (rate limited)
 ```
 
 - **Low power.** A cheap edge-difference check watches the camera on a shrunken frame. The face model only wakes while something moves. E-ink holds its image with no power.
 - **Hostility** is a weighted sum of MediaPipe face blendshapes (brow down, mouth frown, eye squint, pressed lips, nose sneer), cancelled by smiling. Tune the weights in `src/hostility.py` and the overall scale with `HOSTILITY_GAIN`.
-- **One picture per burst.** The first sharp whole face of a burst (one person walking past) is graded. Later faces in the same burst are ignored, so the face model stops running once a face is graded.
+- **One picture per burst.** The first whole face of a burst (one person walking past) opens a short window (`BURST_WINDOW_SECONDS`). Faces in it are compared on sharpness only, and the sharpest is graded: the expression model runs once, on that frame.
 - **Sharp faces.** The camera captures 1280x720 MJPG at 30 fps, which caps each exposure at 33 ms. On Linux it also turns off `exposure_dynamic_framerate`, so the camera can't slow down for longer, smearing exposures in dim light. The real format is logged at startup.
 - **Easy on the display.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer burst replaces one still waiting.
 - **Mood barometer.** Above the date, a scale shows the average hostility of every burst in the last 24 hours (`MOOD_WINDOW_HOURS`). Each burst counts once, at the hostility of its graded face, whether or not the screen was refreshed for it. The numbers live in `data/moods.jsonl` and survive restarts.
@@ -95,7 +95,8 @@ Everything is optional; see `.env.example`. The settings you will most likely to
 | `FACE_MARKS` | true | Draw the eyes, brows, nose, mouth and face outline over the portrait, inverted so they show on light and dark |
 | `MOTION_PIXEL_THRESHOLD` | 0.5 | % of edges that must change to count as motion |
 | `MIN_REFRESH_INTERVAL_SECONDS` | 180 | Minimum time between e-ink redraws |
-| `BURST_GAP_SECONDS` | 2.5 | Quiet time (no face, no movement) that ends a burst |
+| `BURST_WINDOW_SECONDS` | 1.5 | How long after a burst's first face the sharpest face is looked for |
+| `BURST_GAP_SECONDS` | 2.5 | Quiet time (no face, no movement) before the next burst can start |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | empty | Send each shown picture to Telegram, answer `/snap` and `/review` |
 | `REVIEW_MAX_PICTURES` | 25 | Most pictures in the `/review` grid |
 
@@ -106,7 +107,7 @@ src/main.py            capture loop and wiring
 src/motion_detector.py cheap motion gate
 src/faces.py           MediaPipe face landmarks + blendshapes
 src/hostility.py       blendshapes -> 0..1 hostility
-src/burst.py           first sharp face of a burst
+src/burst.py           sharpest face of a burst
 src/mood.py            24 h rolling mood average
 src/render.py          composes the e-ink picture
 src/display/           preview and waveshare backends

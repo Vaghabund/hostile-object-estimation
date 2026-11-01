@@ -25,12 +25,15 @@ _Avoid_: panel, stats
 ### Walk-pasts
 
 **Burst**:
-One person's walk past the camera: from the first face seen until no face has been seen for a set quiet time. A burst has at most one graded face.
+One person's walk past the camera: from the first whole face seen until no face or movement has been seen for a set quiet time. A burst has one graded face.
 _Avoid_: visit, walk-by, session
 
+**Burst window**:
+The short time after a burst's first whole face during which faces are compared for sharpness.
+
 **Graded face**:
-The first sharp whole face of a burst. Its hostility is the only one read for that burst; later faces in the same burst are ignored.
-_Avoid_: best frame, peak, capture
+The sharpest whole face seen during a burst's window. Its hostility is the only one read for that burst.
+_Avoid_: best frame, first face, peak, capture
 
 ### Hostility
 
@@ -48,7 +51,7 @@ _Avoid_: average, barometer value
 The cheap always-on check that something in the corridor is moving. The face model only runs while it is open.
 
 **Sharpness**:
-How in-focus a face is in a frame. It falls with blur and with dim light. A face below the minimum sharpness is not graded.
+How in-focus a face is in a frame. It falls with blur and with dim light. A face below the minimum sharpness is never a candidate for grading.
 
 **Whole face**:
 A face fully inside the camera's view. Faces cut off by the frame edge are ignored, so the display never shows half a face.

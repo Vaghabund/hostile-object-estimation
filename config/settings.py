@@ -53,8 +53,10 @@ FACE_MIN_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "6"))
 # ============================================================================
 # Burst selection and display refresh
 # ============================================================================
-# A burst (one person walking past) ends when no face or movement has been seen for this long.
-# The first sharp face of the burst is the one that is graded.
+# The first face of a burst (one person walking past) starts a window this long; the sharpest
+# face in it is the one that is graded.
+BURST_WINDOW_SECONDS = float(os.getenv("BURST_WINDOW_SECONDS", "1.5"))
+# The next burst can only start once no face or movement has been seen for this long.
 BURST_GAP_SECONDS = float(os.getenv("BURST_GAP_SECONDS", "2.5"))
 # E-ink wears with refreshes and takes seconds per update. Never redraw faster than this.
 MIN_REFRESH_INTERVAL_SECONDS = float(os.getenv("MIN_REFRESH_INTERVAL_SECONDS", "180"))
