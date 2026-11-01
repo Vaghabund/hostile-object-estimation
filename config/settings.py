@@ -42,6 +42,7 @@ ACTIVE_WINDOW_SECONDS = float(os.getenv("ACTIVE_WINDOW_SECONDS", "4.0"))
 # Face analysis + hostility
 # ============================================================================
 FACE_MODEL_PATH = _path("FACE_MODEL_PATH", "models/face_landmarker.task")
+FACE_MARKS = _str_to_bool(os.getenv("FACE_MARKS", "true"))  # draw eyes, brows, nose, mouth and outline on the portrait
 FACE_MIN_WIDTH_PX = int(os.getenv("FACE_MIN_WIDTH_PX", "160"))  # ignore faces smaller than this (at 1280x720)
 # Raw blendshape sums are small even for a good scowl; this scales them to 0-1.
 HOSTILITY_GAIN = float(os.getenv("HOSTILITY_GAIN", "2.0"))

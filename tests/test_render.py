@@ -47,3 +47,27 @@ def test_mood_labels_share_one_font_size_that_fits_the_longest():
     bigger = _font(font.size + 2)
     assert max(draw.textlength(t, font=bigger) for t in LABELS) > 264  # largest size that fits
     assert [_label(h) for h in (0.0, 0.2, 0.5, 0.7, 0.95)] == list(LABELS)
+
+
+def test_face_marks_invert_the_portrait_under_the_lines():
+    from src.marks import CLOSED, OPEN
+
+    frame = np.random.default_rng(0).integers(0, 255, (480, 640, 3), dtype=np.uint8)
+    box = (200, 100, 360, 300)
+    # A mesh whose every point sits at the frame centre except one line across the face.
+    landmarks = [(0.5, 0.5)] * 478
+    left, right = CLOSED[1][0], OPEN[2][0]
+    landmarks[left], landmarks[right] = (0.35, 0.5), (0.65, 0.5)
+    plain = np.asarray(render(frame, box, 0.5, timestamp=0))
+    marked = np.asarray(render(frame, box, 0.5, timestamp=0, landmarks=landmarks))
+    changed = np.any(plain != marked, axis=2)
+    assert changed.any()
+    assert not changed[:, 480:].any()  # only the portrait changes, not the text panel
+    assert np.array_equal(marked[changed], 255 - plain[changed])  # white over dark, black over light
+
+
+def test_no_landmarks_leaves_the_picture_alone():
+    frame = np.random.randint(0, 255, (480, 640, 3), dtype=np.uint8)
+    a = render(frame, (200, 100, 360, 300), 0.5, timestamp=0)
+    b = render(frame, (200, 100, 360, 300), 0.5, timestamp=0, landmarks=())
+    assert np.array_equal(np.asarray(a), np.asarray(b))

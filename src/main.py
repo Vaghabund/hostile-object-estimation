@@ -32,7 +32,7 @@ def publish(display, capture, mood, shown=None):
     """`mood` is (average hostility, visit count) for the barometer; `shown` keeps the picture for /review."""
     image = render(
         capture.frame, capture.face.box, capture.face.hostility, capture.timestamp,
-        size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood,
+        size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood, landmarks=capture.face.landmarks,
     )
     display.show(image)
     logger.info(

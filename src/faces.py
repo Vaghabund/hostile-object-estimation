@@ -22,6 +22,7 @@ class FaceResult:
     box: tuple          # (x1, y1, x2, y2) in pixels
     hostility: float    # 0..1
     sharpness: float    # Laplacian variance of the face crop at SHARPNESS_SIZE; higher = sharper
+    landmarks: tuple = ()  # the 478 mesh points as (x, y), each 0..1 across the frame
 
     @property
     def width(self):
@@ -95,7 +96,10 @@ class FaceAnalyzer:
                 logger.debug("Face rejected: %d px wide (min %d)", box[2] - box[0], FACE_MIN_WIDTH_PX)
                 continue
             blend = {c.category_name: c.score for c in shapes}
-            face = FaceResult(box, hostility_score(blend), sharpness(frame, box))
+            face = FaceResult(
+                box, hostility_score(blend), sharpness(frame, box),
+                tuple((p.x, p.y) for p in landmarks),
+            )
             if face.sharpness < FACE_MIN_SHARPNESS:
                 logger.debug("Face rejected: sharpness %.0f (min %.0f)", face.sharpness, FACE_MIN_SHARPNESS)
                 continue
