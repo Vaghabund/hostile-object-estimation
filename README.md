@@ -91,6 +91,7 @@ Everything is optional; see `.env.example`. The settings you will most likely to
 |---|---|---|
 | `HOSTILITY_GAIN` | 2.0 | Raise if scowls read too low |
 | `FACE_MIN_WIDTH_PX` | 160 | Ignore faces smaller (further away) than this, in 1280x720 pixels |
+| `FACE_MIN_SHARPNESS` | 6 | Drop faces scoring below this sharpness (the score also falls in dim light, so it depends on the install) |
 | `MOTION_PIXEL_THRESHOLD` | 0.5 | % of edges that must change to count as motion |
 | `MIN_REFRESH_INTERVAL_SECONDS` | 180 | Minimum time between e-ink redraws |
 | `BURST_GAP_SECONDS` | 2.5 | Quiet time that ends a visit |
@@ -115,6 +116,17 @@ src/notify.py          optional Telegram send
 src/telegram_bot.py    optional /snap and /review commands
 deploy/hostile.service systemd unit
 ```
+
+## Final test at the mounted position
+
+**Still to do:** tune and test once the camera is fixed where it will live. The thresholds so far were set on a dim bench setup and will probably be wrong at the final spot.
+
+- Run with `LOG_LEVEL=DEBUG` and walk past a few times. The log shows why faces are dropped (too narrow, too blurry, off the frame edge) and, every 30 s, the frame count and peak edge change.
+- `FACE_MIN_SHARPNESS`: sharpness falls with dim light as well as blur. Check what a still face scores there, and set the minimum below that.
+- `FACE_MIN_WIDTH_PX`: check people at the usual passing distance clear it.
+- `MOTION_PIXEL_THRESHOLD`: check an empty hallway stays below it and a walker clears it.
+- Lighting and focus: look at a few pictures in `/review`. Dark or soft portraits need more light or a camera focus fix, not a lower threshold.
+- Set the values in the Pi's `.env`, then put `LOG_LEVEL` back to `INFO`.
 
 ## Ideas for later
 
