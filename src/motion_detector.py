@@ -30,6 +30,7 @@ class MotionDetector:
         self.pixel_threshold = pixel_threshold
         self.downscale = downscale
         self.prev_edges = None
+        self.last_change = 0.0  # % of edge pixels that changed on the latest frame
 
     def detect(self, frame):
         """Return True if enough edges changed since the previous frame."""
@@ -52,10 +53,6 @@ class MotionDetector:
             return False
 
         change_percentage = np.count_nonzero(cv2.absdiff(prev, edges)) / edges.size * 100
+        self.last_change = change_percentage
         is_motion = bool(change_percentage > self.pixel_threshold)
-        if is_motion:
-            logger.debug(
-                "Motion: %.2f%% edges changed (threshold %.2f%%)",
-                change_percentage, self.pixel_threshold,
-            )
         return is_motion

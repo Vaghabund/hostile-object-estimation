@@ -92,6 +92,7 @@ def run_forever():
     pending = None
     last_refresh = float("-inf")
     logger.info("Watching the hallway.")
+    heartbeat_at, frames, peak_change = time.monotonic() + 30, 0, 0.0
 
     try:
         while not stop:
@@ -104,7 +105,13 @@ def run_forever():
                 continue
 
             now = time.monotonic()
-            if motion.detect(frame):
+            moving = motion.detect(frame)
+            frames += 1
+            peak_change = max(peak_change, motion.last_change)
+            if now >= heartbeat_at:
+                logger.debug("Last 30s: %d frames, peak edge change %.2f%%", frames, peak_change)
+                heartbeat_at, frames, peak_change = now + 30, 0, 0.0
+            if moving:
                 active_until = now + ACTIVE_WINDOW_SECONDS
 
             # The face model only runs while something is moving.

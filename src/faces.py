@@ -85,16 +85,19 @@ class FaceAnalyzer:
             ys = [p.y for p in landmarks]
             # A face running off the frame edge would show up cut off on the panel.
             if min(xs) < 0 or min(ys) < 0 or max(xs) > 1 or max(ys) > 1:
+                logger.debug("Face rejected: runs off the frame edge")
                 continue
             box = (
                 max(0, int(min(xs) * w)), max(0, int(min(ys) * h)),
                 min(w, int(max(xs) * w)), min(h, int(max(ys) * h)),
             )
             if box[2] - box[0] < FACE_MIN_WIDTH_PX:
+                logger.debug("Face rejected: %d px wide (min %d)", box[2] - box[0], FACE_MIN_WIDTH_PX)
                 continue
             blend = {c.category_name: c.score for c in shapes}
             face = FaceResult(box, hostility_score(blend), sharpness(frame, box))
             if face.sharpness < FACE_MIN_SHARPNESS:
+                logger.debug("Face rejected: sharpness %.0f (min %.0f)", face.sharpness, FACE_MIN_SHARPNESS)
                 continue
             if best is None or face.hostility > best.hostility:
                 best = face
