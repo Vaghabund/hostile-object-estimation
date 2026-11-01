@@ -1,4 +1,4 @@
-"""Rolling log of how hostile recent visits were, for the mood barometer."""
+"""Rolling log of how hostile recent bursts were, for the mood barometer."""
 import json
 import logging
 import threading
@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 class MoodLog:
     """
-    Appends one {"t": unix time, "v": hostility} line per visit and averages the
+    Appends one {"t": unix time, "v": hostility} line per burst and averages the
     ones inside the window. Survives restarts; the file is trimmed on startup.
     """
 
@@ -55,7 +55,7 @@ class MoodLog:
                 f.write(json.dumps({"t": entry[0], "v": entry[1]}) + "\n")
 
     def average(self):
-        """Return (mean hostility, number of visits) over the window, or None if empty."""
+        """Return (mean hostility, number of bursts) over the window, or None if empty."""
         cutoff = self._clock() - self.window
         with self._lock:  # the Telegram bot reads this from its own thread
             self._entries = [e for e in self._entries if e[0] >= cutoff]

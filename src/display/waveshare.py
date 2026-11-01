@@ -7,7 +7,7 @@ logger = logging.getLogger(__name__)
 
 
 class WaveshareDisplay:
-    """Black/white Waveshare panel, chosen with WAVESHARE_MODEL (e.g. epd7in5_V2)."""
+    """Black/white Waveshare display, chosen with WAVESHARE_MODEL (e.g. epd7in5_V2)."""
 
     mono = True
 
@@ -19,7 +19,7 @@ class WaveshareDisplay:
     def show(self, image):
         self._epd.init()
         self._epd.display(self._epd.getbuffer(image.convert("1")))
-        # Sleep between updates: the panel holds the image with no power at all.
+        # Sleep between updates: the display holds the image with no power at all.
         self._epd.sleep()
         logger.info("Waveshare refreshed")
 

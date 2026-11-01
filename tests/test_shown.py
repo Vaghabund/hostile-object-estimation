@@ -14,12 +14,12 @@ def save(store, hostility, timestamp):
     store.save(Image.new("RGB", (40, 24)), Image.new("RGB", (8, 8)), hostility, timestamp)
 
 
-def test_saves_panel_and_face(tmp_path):
+def test_saves_picture_and_portrait(tmp_path):
     store, _ = make(tmp_path, 1000 * HOUR)
     save(store, 0.7, 1000 * HOUR)
     [picture] = store.recent()
     assert picture.hostility == 0.7 and picture.timestamp == 1000 * HOUR
-    assert picture.panel.exists() and picture.face.exists()
+    assert picture.image.exists() and picture.face.exists()
 
 
 def test_old_pictures_are_deleted_on_save(tmp_path):
@@ -28,7 +28,7 @@ def test_old_pictures_are_deleted_on_save(tmp_path):
     clock["t"] += 25 * HOUR
     save(store, 0.1, clock["t"])
     assert [p.hostility for p in store.recent()] == [0.1]
-    assert len(list(tmp_path.glob("*.png"))) == 2  # one panel + its face
+    assert len(list(tmp_path.glob("*.png"))) == 2  # one picture + its portrait
 
 
 def test_old_pictures_are_deleted_on_startup(tmp_path):

@@ -29,7 +29,7 @@ def test_barometer_changes_the_picture():
 def test_barometer_is_a_dithered_ramp_from_white_to_black():
     frame = np.zeros((480, 640, 3), dtype=np.uint8)
     img = render(frame, (200, 100, 360, 300), 0.5, timestamp=0, size=(800, 480), mood=(0.5, 3))
-    # Barometer layout for the default 800x480 display: panel x=508..772, y=336, strip below the header.
+    # Barometer layout for the default 800x480 display: reading x=508..772, y=336, strip below the header.
     strip = np.asarray(img.convert("L"))[336 + 40:336 + 54, 508 + 8:772 - 8]
     assert set(np.unique(strip)) <= {0, 255}
     third = strip.shape[1] // 3
@@ -62,7 +62,7 @@ def test_face_marks_invert_the_portrait_under_the_lines():
     marked = np.asarray(render(frame, box, 0.5, timestamp=0, landmarks=landmarks))
     changed = np.any(plain != marked, axis=2)
     assert changed.any()
-    assert not changed[:, 480:].any()  # only the portrait changes, not the text panel
+    assert not changed[:, 480:].any()  # only the portrait changes, not the reading
     assert np.array_equal(marked[changed], 255 - plain[changed])  # white over dark, black over light
 
 

@@ -31,7 +31,7 @@ logger = logging.getLogger("hostile")
 
 def publish(display, capture, mood, shown=None, analyzer=None):
     """
-    `mood` is (average hostility, visit count) for the barometer; `shown` keeps the picture for /review.
+    `mood` is (average hostility, burst count) for the barometer; `shown` keeps the picture for /review.
     `analyzer` re-places the face marks on the picture's crop, where they sit more accurately than from the full frame.
     """
     landmarks = capture.face.landmarks
@@ -73,7 +73,7 @@ def run_once(image_path):
     display = get_display()
     capture = burst.poll(now=0.0)
     # Read-only: a test image must not pollute the real mood log. Show the
-    # existing average, or just this image's score if the log is empty.
+    # existing average, or just this image's hostility if the log is empty.
     mood = MoodLog()
     average = mood.average() or (capture.face.hostility, 1)
     publish(display, capture, average, analyzer=analyzer)

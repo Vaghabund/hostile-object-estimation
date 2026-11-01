@@ -3,7 +3,7 @@
 A hallway art piece. A camera watches the corridor; when someone walks past, a Raspberry Pi finds their face, reads how much they are frowning, and shows their face on an e-ink display with a "hostility" percentage.
 
 ```
-USB camera -> motion gate -> face landmarks -> hostility score -> first sharp face of the burst -> e-ink
+USB camera -> motion gate -> face landmarks -> hostility -> first sharp face of the burst -> e-ink
              (cheap, always)  (only on motion)  (brows, frown, squint)                       (rate limited)
 ```
 
@@ -11,15 +11,15 @@ USB camera -> motion gate -> face landmarks -> hostility score -> first sharp fa
 - **Hostility** is a weighted sum of MediaPipe face blendshapes (brow down, mouth frown, eye squint, pressed lips, nose sneer), cancelled by smiling. Tune the weights in `src/hostility.py` and the overall scale with `HOSTILITY_GAIN`.
 - **One picture per burst.** The first sharp whole face of a burst (one person walking past) is graded. Later faces in the same burst are ignored, so the face model stops running once a face is graded.
 - **Sharp faces.** The camera captures 1280x720 MJPG at 30 fps, which caps each exposure at 33 ms. On Linux it also turns off `exposure_dynamic_framerate`, so the camera can't slow down for longer, smearing exposures in dim light. The real format is logged at startup.
-- **Easy on the panel.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer burst replaces one still waiting.
+- **Easy on the display.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer burst replaces one still waiting.
 - **Mood barometer.** Above the date, a scale shows the average hostility of every burst in the last 24 hours (`MOOD_WINDOW_HOURS`). Each burst counts once, at the hostility of its graded face, whether or not the screen was refreshed for it. The numbers live in `data/moods.jsonl` and survive restarts.
-- **Whole faces only.** Faces partly outside the camera's view are skipped, so the panel never shows half a face.
-- **Telegram (optional).** With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, every picture put on the panel is also sent to that chat. Create the bot with @BotFather, message it once, then read your chat id from `https://api.telegram.org/bot<token>/getUpdates`. The chat can also send:
+- **Whole faces only.** Faces partly outside the camera's view are skipped, so the display never shows half a face.
+- **Telegram (optional).** With `TELEGRAM_BOT_TOKEN` and `TELEGRAM_CHAT_ID` set, every picture put on the display is also sent to that chat. Create the bot with @BotFather, message it once, then read your chat id from `https://api.telegram.org/bot<token>/getUpdates`. The chat can also send:
   - `/snap`: the camera's view right now, as a plain photo. Never stored.
-  - `/review`: the faces of the most hostile pictures shown in the last 24 hours (up to `REVIEW_MAX_PICTURES`, default 25), sorted and tagged with their scores, next to the mood average and an hourly mood chart. It comes as an inline photo plus the same image at full resolution as a file.
+  - `/review`: the faces of the most hostile pictures shown in the last 24 hours (up to `REVIEW_MAX_PICTURES`, default 25), sorted and tagged with their hostility, next to the mood average and an hourly mood chart. It comes as an inline photo plus the same image at full resolution as a file.
 
   Only that chat gets answers. Messages from anyone else are ignored, since `/snap` is a live camera.
-- **What is stored.** Every picture put on the panel is kept in `data/shown/` (the panel image plus the face crop) for `MOOD_WINDOW_HOURS`, then deleted. The mood log is timestamps and scores. If Telegram is on, shown pictures and snaps also go to Telegram's servers.
+- **What is stored.** Every picture put on the display is kept in `data/shown/` (the picture plus the portrait) for `MOOD_WINDOW_HOURS`, then deleted. The mood log is timestamps and hostility. If Telegram is on, shown pictures and snaps also go to Telegram's servers.
 
 ## Quick start (any machine, no hardware needed)
 
@@ -35,7 +35,7 @@ The face model (about 4 MB) is downloaded on first run into `models/`. On Linux,
 
 ## On the Pi
 
-Built on a **Raspberry Pi 5** with a Waveshare e-Paper Driver HAT (SKU 13512), a 7.5" 800x480 black/white panel (`epd7in5_V2`) and a USB webcam. Use **64-bit** Raspberry Pi OS (Lite is enough), since MediaPipe has no 32-bit wheels.
+Built on a **Raspberry Pi 5** with a Waveshare e-Paper Driver HAT (SKU 13512), a 7.5" 800x480 black/white display (`epd7in5_V2`) and a USB webcam. Use **64-bit** Raspberry Pi OS (Lite is enough), since MediaPipe has no 32-bit wheels.
 
 Flash with Raspberry Pi Imager: hostname `hoe`, user `admin`, SSH on with public-key login. Then `ssh admin@hoe.local`. Passwords are not kept in this repo.
 
@@ -79,7 +79,7 @@ Set `DISPLAY_BACKEND` in `.env`:
 | Backend | Hardware | Extra install |
 |---|---|---|
 | `preview` | none (writes a PNG) | |
-| `waveshare` | Waveshare black/white panel, `WAVESHARE_MODEL=epd7in5_V2` | Waveshare's `waveshare_epd` library |
+| `waveshare` | Waveshare black/white display, `WAVESHARE_MODEL=epd7in5_V2` | Waveshare's `waveshare_epd` library |
 
 The `preview` backend and the pipeline are tested, and `waveshare` runs on the Pi 5 described above.
 
@@ -105,7 +105,7 @@ Everything is optional; see `.env.example`. The settings you will most likely to
 src/main.py            capture loop and wiring
 src/motion_detector.py cheap motion gate
 src/faces.py           MediaPipe face landmarks + blendshapes
-src/hostility.py       blendshapes -> 0..1 score
+src/hostility.py       blendshapes -> 0..1 hostility
 src/burst.py           first sharp face of a burst
 src/mood.py            24 h rolling mood average
 src/render.py          composes the e-ink picture
