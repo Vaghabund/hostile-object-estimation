@@ -46,7 +46,8 @@ FACE_MIN_WIDTH_PX = int(os.getenv("FACE_MIN_WIDTH_PX", "160"))  # ignore faces s
 # Raw blendshape sums are small even for a good scowl; this scales them to 0-1.
 HOSTILITY_GAIN = float(os.getenv("HOSTILITY_GAIN", "2.0"))
 # Faces blurrier than this (Laplacian variance of the crop at a fixed size) are not candidates.
-FACE_MIN_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "30"))
+# The score falls with dim light, not just blur: dim hallway portraits on the Pi score about 5-13.
+FACE_MIN_SHARPNESS = float(os.getenv("FACE_MIN_SHARPNESS", "6"))
 
 # ============================================================================
 # Burst selection and display refresh
