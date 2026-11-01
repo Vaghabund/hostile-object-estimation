@@ -35,7 +35,10 @@ def publish(display, capture, mood, shown=None):
         size=display.size or DISPLAY_SIZE, mono=display.mono, mood=mood,
     )
     display.show(image)
-    logger.info("Showing face with hostility %.0f%%", capture.face.hostility * 100)
+    logger.info(
+        "Showing face with hostility %.0f%% (%d px wide, sharpness %.0f)",
+        capture.face.hostility * 100, capture.face.width, capture.face.sharpness,
+    )
     send_photo(image, f"Hostility {round(capture.face.hostility * 100)}%")
     if shown is not None:
         face = Image.fromarray(cv2.cvtColor(square_crop(capture.frame, capture.face.box), cv2.COLOR_BGR2RGB))

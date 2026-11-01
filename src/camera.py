@@ -1,5 +1,6 @@
 import cv2
 import logging
+import subprocess
 import sys
 import time
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
@@ -60,23 +61,9 @@ class FrameCapture:
             if not self.cap.isOpened():
                 raise RuntimeError(f"Failed to open camera {self.camera_id}")
 
-            # Set resolution
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-
-            # Set FPS
-            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
-
-            # Keep only the newest frame in the driver buffer. While face analysis
-            # runs, no reads happen; without this the driver queues stale frames and
-            # every subsequent read lags behind real time.
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-
+            self._configure()
             self.is_active = True
-            logger.info(
-                f"Camera started: ID={self.camera_id}, "
-                f"resolution={self.resolution}, fps={self.fps}"
-            )
+            logger.info(f"Camera started: ID={self.camera_id}")
 
             # Warm up camera (discard first N frames)
             for _ in range(CAMERA_WARMUP_FRAMES):
@@ -87,6 +74,41 @@ class FrameCapture:
             logger.error(f"Error starting camera: {e}")
             self.is_active = False
             raise
+
+    def _configure(self):
+        """Apply format, size and frame rate, then log what the driver actually gave us."""
+        # MJPG first: webcams often reach 720p at 30 fps only compressed (this one does 10 fps in YUYV).
+        self.cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*"MJPG"))
+        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
+        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
+        self.cap.set(cv2.CAP_PROP_FPS, self.fps)
+
+        # Keep only the newest frame in the driver buffer. While face analysis
+        # runs, no reads happen; without this the driver queues stale frames and
+        # every subsequent read lags behind real time.
+        self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+        self._limit_exposure()
+
+        fourcc = int(self.cap.get(cv2.CAP_PROP_FOURCC)).to_bytes(4, "little").decode(errors="replace")
+        logger.info(
+            "Camera delivers %dx%d %s at %.0f fps",
+            self.cap.get(cv2.CAP_PROP_FRAME_WIDTH), self.cap.get(cv2.CAP_PROP_FRAME_HEIGHT),
+            fourcc, self.cap.get(cv2.CAP_PROP_FPS),
+        )
+
+    def _limit_exposure(self):
+        """Stop the camera lowering its frame rate for longer exposures in dim light; those smear moving faces."""
+        if not sys.platform.startswith("linux"):
+            return
+        try:
+            result = subprocess.run(
+                ["v4l2-ctl", "-d", f"/dev/video{self.camera_id}", "-c", "exposure_dynamic_framerate=0"],
+                capture_output=True, timeout=5,
+            )
+            if result.returncode:
+                logger.debug("Camera has no exposure_dynamic_framerate control: %s", result.stderr.decode().strip())
+        except (OSError, subprocess.SubprocessError) as e:
+            logger.debug("Could not run v4l2-ctl: %s", e)
 
     def _choose_camera_id(self):
         """Select the best available camera based on preference."""
@@ -193,11 +215,7 @@ class FrameCapture:
             if not self.cap.isOpened():
                 raise RuntimeError(f"Failed to reopen camera {self.camera_id}")
             
-            # Re-apply settings
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-            self.cap.set(cv2.CAP_PROP_FPS, self.fps)
-            self.cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            self._configure()
 
             logger.info("Camera reconnected successfully")
             self.is_active = True

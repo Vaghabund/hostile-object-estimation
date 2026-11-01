@@ -7,9 +7,10 @@ USB camera -> motion gate -> face landmarks -> hostility score -> best frame of 
              (cheap, always)  (only on motion)  (brows, frown, squint)                       (rate limited)
 ```
 
-- **Low power.** The camera runs at 10 fps and a cheap edge-difference check watches it. The face model only wakes while something moves. E-ink holds its image with no power.
+- **Low power.** A cheap edge-difference check watches the camera on a shrunken frame. The face model only wakes while something moves. E-ink holds its image with no power.
 - **Hostility** is a weighted sum of MediaPipe face blendshapes (brow down, mouth frown, eye squint, pressed lips, nose sneer), cancelled by smiling. Tune the weights in `src/hostility.py` and the overall scale with `HOSTILITY_GAIN`.
-- **One picture per visit.** Frames from a visit are compared, and the most hostile (sharpest on ties) wins.
+- **One picture per visit.** Frames from a visit are compared. Frames much blurrier than the visit's sharpest are out (`BURST_SHARPNESS_RATIO`), and of the rest the most hostile wins.
+- **Sharp faces.** The camera captures 1280x720 MJPG at 30 fps, which caps each exposure at 33 ms. On Linux it also turns off `exposure_dynamic_framerate`, so the camera can't slow down for longer, smearing exposures in dim light. The real format is logged at startup.
 - **Easy on the panel.** Refreshes are limited to one per `MIN_REFRESH_INTERVAL_SECONDS` (default 3 min). A newer visit replaces one still waiting.
 - **Mood barometer.** Above the date, a scale shows the average hostility of every visit in the last 24 hours (`MOOD_WINDOW_HOURS`). Each visit counts once, at its average over the whole walk-past, whether or not the screen was refreshed for it. The numbers live in `data/moods.jsonl` and survive restarts.
 - **Whole faces only.** Faces partly outside the camera's view are skipped, so the panel never shows half a face.
@@ -40,7 +41,7 @@ Flash with Raspberry Pi Imager: hostname `hoe`, user `admin`, SSH on with public
 
 ```bash
 sudo raspi-config nonint do_spi 0 && sudo reboot   # the HAT talks SPI
-sudo apt install git python3-venv python3-dev libegl1 libgles2 libgl1 python3-spidev python3-gpiozero python3-lgpio
+sudo apt install git python3-venv python3-dev libegl1 libgles2 libgl1 python3-spidev python3-gpiozero python3-lgpio v4l-utils
 git clone https://github.com/Vaghabund/hostile-object-estimation ~/hostile-object-estimation && cd ~/hostile-object-estimation
 python3 -m venv --system-site-packages .venv && . .venv/bin/activate   # system packages: the GPIO/SPI libs above
 pip install -r requirements.txt
@@ -89,10 +90,12 @@ Everything is optional; see `.env.example`. The settings you will most likely to
 | Variable | Default | |
 |---|---|---|
 | `HOSTILITY_GAIN` | 2.0 | Raise if scowls read too low |
-| `FACE_MIN_WIDTH_PX` | 80 | Ignore faces smaller (further away) than this |
+| `FACE_MIN_WIDTH_PX` | 160 | Ignore faces smaller (further away) than this, in 1280x720 pixels |
+| `FACE_MIN_SHARPNESS` | 6 | Drop faces scoring below this sharpness (the score also falls in dim light, so it depends on the install) |
 | `MOTION_PIXEL_THRESHOLD` | 0.5 | % of edges that must change to count as motion |
 | `MIN_REFRESH_INTERVAL_SECONDS` | 180 | Minimum time between e-ink redraws |
 | `BURST_GAP_SECONDS` | 2.5 | Quiet time that ends a visit |
+| `BURST_SHARPNESS_RATIO` | 0.6 | How sharp a frame must be, relative to the visit's sharpest, to be picked |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` | empty | Send each shown picture to Telegram, answer `/snap` and `/review` |
 | `REVIEW_MAX_PICTURES` | 25 | Most pictures in the `/review` grid |
 
@@ -113,6 +116,17 @@ src/notify.py          optional Telegram send
 src/telegram_bot.py    optional /snap and /review commands
 deploy/hostile.service systemd unit
 ```
+
+## Final test at the mounted position
+
+**Still to do:** tune and test once the camera is fixed where it will live. The thresholds so far were set on a dim bench setup and will probably be wrong at the final spot.
+
+- Run with `LOG_LEVEL=DEBUG` and walk past a few times. The log shows why faces are dropped (too narrow, too blurry, off the frame edge) and, every 30 s, the frame count and peak edge change.
+- `FACE_MIN_SHARPNESS`: sharpness falls with dim light as well as blur. Check what a still face scores there, and set the minimum below that.
+- `FACE_MIN_WIDTH_PX`: check people at the usual passing distance clear it.
+- `MOTION_PIXEL_THRESHOLD`: check an empty hallway stays below it and a walker clears it.
+- Lighting and focus: look at a few pictures in `/review`. Dark or soft portraits need more light or a camera focus fix, not a lower threshold.
+- Set the values in the Pi's `.env`, then put `LOG_LEVEL` back to `INFO`.
 
 ## Ideas for later
 
