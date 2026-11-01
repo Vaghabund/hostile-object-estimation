@@ -24,3 +24,9 @@ def test_motion_blur_lowers_sharpness():
     smeared = cv2.filter2D(img, -1, kernel)
     box = (0, 0, 256, 256)
     assert sharpness(smeared, box) < 0.5 * sharpness(img, box)
+
+
+def test_closest_box_is_matched_by_centre():
+    from src.faces import _centre_distance
+    target = (100, 100, 200, 200)
+    assert _centre_distance((105, 100, 205, 200), target) < _centre_distance((400, 100, 500, 200), target)

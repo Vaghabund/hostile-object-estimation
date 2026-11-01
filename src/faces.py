@@ -21,8 +21,8 @@ MODEL_URL = (
 @dataclass
 class FaceResult:
     box: tuple          # (x1, y1, x2, y2) in pixels
-    hostility: float    # 0..1
     sharpness: float    # Laplacian variance of the face crop at SHARPNESS_SIZE; higher = sharper
+    hostility: float = 0.0  # 0..1; only set once the face is graded
     landmarks: tuple = ()  # the 478 mesh points as (x, y), each 0..1 across the frame
 
     @property
@@ -56,8 +56,27 @@ def sharpness(frame, box):
     return float(cv2.Laplacian(gray, cv2.CV_64F).var())
 
 
+def _box(landmarks, w, h):
+    """The face's pixel box from its mesh points, or None if it runs off the frame edge."""
+    xs = [p.x for p in landmarks]
+    ys = [p.y for p in landmarks]
+    if min(xs) < 0 or min(ys) < 0 or max(xs) > 1 or max(ys) > 1:
+        return None
+    return (
+        max(0, int(min(xs) * w)), max(0, int(min(ys) * h)),
+        min(w, int(max(xs) * w)), min(h, int(max(ys) * h)),
+    )
+
+
+def _centre_distance(a, b):
+    return abs((a[0] + a[2]) - (b[0] + b[2])) + abs((a[1] + a[3]) - (b[1] + b[3]))
+
+
 class FaceAnalyzer:
-    """MediaPipe Face Landmarker: finds faces and their expression blendshapes in one pass."""
+    """
+    MediaPipe Face Landmarker. `find` locates whole faces and measures their sharpness, cheap
+    enough to run on every frame of a burst window. `grade` reads the expression, once, on the winner.
+    """
 
     def __init__(self, model_path: Path = FACE_MODEL_PATH):
         import mediapipe as mp
@@ -65,17 +84,21 @@ class FaceAnalyzer:
         from mediapipe.tasks.python import vision
 
         self._mp = mp
-        options = vision.FaceLandmarkerOptions(
-            base_options=mp_python.BaseOptions(model_asset_path=str(ensure_model(model_path))),
-            running_mode=vision.RunningMode.IMAGE,
-            output_face_blendshapes=True,
-            num_faces=2,
-        )
-        self._landmarker = vision.FaceLandmarker.create_from_options(options)
 
-    def _detect(self, frame):
+        def landmarker(blendshapes):
+            return vision.FaceLandmarker.create_from_options(vision.FaceLandmarkerOptions(
+                base_options=mp_python.BaseOptions(model_asset_path=str(ensure_model(model_path))),
+                running_mode=vision.RunningMode.IMAGE,
+                output_face_blendshapes=blendshapes,
+                num_faces=2,
+            ))
+
+        self._finder = landmarker(False)
+        self._grader = landmarker(True)
+
+    def _detect(self, landmarker, frame):
         rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        return self._landmarker.detect(
+        return landmarker.detect(
             self._mp.Image(image_format=self._mp.ImageFormat.SRGB, data=np.ascontiguousarray(rgb))
         )
 
@@ -88,7 +111,7 @@ class FaceAnalyzer:
         """
         h, w = frame.shape[:2]
         left, top, side = crop_rect(frame, box)
-        result = self._detect(frame[top:top + side, left:left + side])
+        result = self._detect(self._finder, frame[top:top + side, left:left + side])
         if not result.face_landmarks:
             return None
         # The face the box was drawn around is the one nearest the crop's centre.
@@ -97,37 +120,44 @@ class FaceAnalyzer:
         landmarks = min(result.face_landmarks, key=off_centre)
         return tuple(((left + p.x * side) / w, (top + p.y * side) / h) for p in landmarks)
 
-    def analyze(self, frame):
-        """Return the most hostile usable FaceResult in a BGR frame, or None."""
+    def find(self, frame):
+        """Return the sharpest usable face in a BGR frame (hostility not yet read), or None."""
         h, w = frame.shape[:2]
-        result = self._detect(frame)
-
         best = None
-        for landmarks, shapes in zip(result.face_landmarks, result.face_blendshapes):
-            xs = [p.x for p in landmarks]
-            ys = [p.y for p in landmarks]
-            # A face running off the frame edge would show up cut off on the display.
-            if min(xs) < 0 or min(ys) < 0 or max(xs) > 1 or max(ys) > 1:
+        for landmarks in self._detect(self._finder, frame).face_landmarks:
+            box = _box(landmarks, w, h)
+            if box is None:
+                # A face running off the frame edge would show up cut off on the display.
                 logger.debug("Face rejected: runs off the frame edge")
                 continue
-            box = (
-                max(0, int(min(xs) * w)), max(0, int(min(ys) * h)),
-                min(w, int(max(xs) * w)), min(h, int(max(ys) * h)),
-            )
             if box[2] - box[0] < FACE_MIN_WIDTH_PX:
                 logger.debug("Face rejected: %d px wide (min %d)", box[2] - box[0], FACE_MIN_WIDTH_PX)
                 continue
-            blend = {c.category_name: c.score for c in shapes}
-            face = FaceResult(
-                box, hostility_score(blend), sharpness(frame, box),
-                tuple((p.x, p.y) for p in landmarks),
-            )
+            face = FaceResult(box, sharpness(frame, box), landmarks=tuple((p.x, p.y) for p in landmarks))
             if face.sharpness < FACE_MIN_SHARPNESS:
                 logger.debug("Face rejected: sharpness %.0f (min %.0f)", face.sharpness, FACE_MIN_SHARPNESS)
                 continue
-            if best is None or face.hostility > best.hostility:
+            if best is None or face.sharpness > best.sharpness:
                 best = face
         return best
 
+    def grade(self, frame, face):
+        """Read the expression of `face` (from `find` on this same frame). Returns a FaceResult with hostility, or None."""
+        h, w = frame.shape[:2]
+        result = self._detect(self._grader, frame)
+        candidates = []
+        for landmarks, shapes in zip(result.face_landmarks, result.face_blendshapes):
+            box = _box(landmarks, w, h)
+            if box is not None:
+                candidates.append((box, landmarks, shapes))
+        if not candidates:
+            return None
+        box, landmarks, shapes = min(candidates, key=lambda c: _centre_distance(c[0], face.box))
+        blend = {c.category_name: c.score for c in shapes}
+        return FaceResult(
+            box, face.sharpness, hostility_score(blend), tuple((p.x, p.y) for p in landmarks),
+        )
+
     def close(self):
-        self._landmarker.close()
+        self._finder.close()
+        self._grader.close()

@@ -11,11 +11,12 @@ from PIL import Image
 from config.settings import (
     ACTIVE_WINDOW_SECONDS,
     BURST_GAP_SECONDS,
+    BURST_WINDOW_SECONDS,
     DISPLAY_SIZE,
     LOG_LEVEL,
     MIN_REFRESH_INTERVAL_SECONDS,
 )
-from src.burst import BurstSelector
+from src.burst import BurstSelector, Capture
 from src.camera import FrameCapture
 from src.display import get_display
 from src.faces import FaceAnalyzer
@@ -63,15 +64,14 @@ def run_once(image_path):
     if frame is None:
         sys.exit(f"Could not read image: {image_path}")
     analyzer = FaceAnalyzer()
-    face = analyzer.analyze(frame)
+    found = analyzer.find(frame)
+    face = analyzer.grade(frame, found) if found is not None else None
     if face is None:
         analyzer.close()
         sys.exit("No usable face found (too small, too blurry, or none at all).")
 
-    burst = BurstSelector(gap_seconds=0)
-    burst.add(frame, face, now=0.0)
     display = get_display()
-    capture = burst.poll(now=0.0)
+    capture = Capture(frame, face, time.time())
     # Read-only: a test image must not pollute the real mood log. Show the
     # existing average, or just this image's hostility if the log is empty.
     mood = MoodLog()
@@ -96,7 +96,7 @@ def run_forever():
     analyzer = FaceAnalyzer()
     display = get_display()
     motion = MotionDetector()
-    burst = BurstSelector(BURST_GAP_SECONDS)
+    burst = BurstSelector(BURST_WINDOW_SECONDS, BURST_GAP_SECONDS)
     mood = MoodLog()
     shown = ShownPictures()
     TelegramBot(camera, shown, mood).start()
@@ -127,21 +127,24 @@ def run_forever():
             if moving:
                 active_until = now + ACTIVE_WINDOW_SECONDS
 
-            # Once a burst has its graded face, later faces are ignored: no need to run the
-            # face model, only to notice that the person is still moving about.
-            if burst.in_progress:
-                if moving:
-                    burst.keep_alive(now)
-            # The face model only runs while something is moving.
-            elif now < active_until:
-                face = analyzer.analyze(frame)
+            # The face model only looks for faces while something is moving, and once a burst
+            # has been graded it only needs to notice that the person is still about.
+            if burst.collecting or (now < active_until and burst.ready_for_new_burst(now)):
+                face = analyzer.find(frame)
                 if face is not None:
                     burst.add(frame, face, now)
+            elif moving:
+                burst.keep_alive(now)
 
             finished = burst.poll(now)
             if finished is not None:
-                mood.record(finished.face.hostility, finished.timestamp)  # every burst counts, shown or not
-                pending = finished  # a newer burst replaces one still waiting out the refresh limit
+                graded = analyzer.grade(finished.frame, finished.face)
+                if graded is None:
+                    logger.debug("Burst dropped: the sharpest face could not be graded")
+                else:
+                    finished.face = graded
+                    mood.record(graded.hostility, finished.timestamp)  # every burst counts, shown or not
+                    pending = finished  # a newer burst replaces one still waiting out the refresh limit
 
             if pending is not None and now - last_refresh >= MIN_REFRESH_INTERVAL_SECONDS:
                 publish(display, pending, mood.average(), shown, analyzer)
